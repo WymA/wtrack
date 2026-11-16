@@ -79,7 +79,7 @@ export async function sendNewAlerts(
   if (alerts.length === 0) return [];
 
   const historyKey = `alerts:${date}`;
-  const sentIds = parseAlertHistory(await env.STOCK_TRACKER_KV.get(historyKey));
+  const sentIds = parseAlertHistory(await env.WTRACK_KV.get(historyKey));
   const pending = alerts.filter((alert) => !sentIds.has(`${alert.ticker}:${alert.type}`));
   const notified: StockAlert[] = [];
 
@@ -94,7 +94,7 @@ export async function sendNewAlerts(
       sentIds.add(`${alert.ticker}:${alert.type}`);
       notified.push(alert);
     }
-    await env.STOCK_TRACKER_KV.put(historyKey, JSON.stringify([...sentIds]), {
+    await env.WTRACK_KV.put(historyKey, JSON.stringify([...sentIds]), {
       expirationTtl: ALERT_HISTORY_TTL_SECONDS
     });
   }

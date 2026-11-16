@@ -29,10 +29,9 @@ export interface StockAlert {
 }
 
 export interface Env {
-  STOCK_TRACKER_KV: KVNamespace;
+  WTRACK_KV: KVNamespace;
   ALPACA_API_KEY: string;
   ALPACA_API_SECRET_KEY: string;
   WEBHOOK_URL: string;
-  ADMIN_TOKEN: string;
   TELEGRAM_CHAT_ID?: string;
 }

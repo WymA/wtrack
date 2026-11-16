@@ -33,19 +33,6 @@ function jsonResponse(value: unknown, status = 200): Response {
   });
 }
 
-function authorize(request: Request, env: Env): Response | null {
-  if (!env.ADMIN_TOKEN) {
-    return jsonResponse({ error: "ADMIN_TOKEN is not configured." }, 503);
-  }
-  if (request.headers.get("authorization") !== `Bearer ${env.ADMIN_TOKEN}`) {
-    return jsonResponse(
-      { error: "A valid bearer token is required." },
-      401
-    );
-  }
-  return null;
-}
-
 function normalizeTickerList(value: unknown): string[] {
   if (
     !Array.isArray(value) ||
@@ -63,7 +50,7 @@ function normalizeTickerList(value: unknown): string[] {
 }
 
 async function loadTickerList(env: Env, key: "watchlist" | "holdings"): Promise<string[]> {
-  const value = await env.STOCK_TRACKER_KV.get(key);
+  const value = await env.WTRACK_KV.get(key);
   if (value === null) return [];
   const parsed: unknown = JSON.parse(value);
   return normalizeTickerList(parsed);
@@ -107,7 +94,7 @@ async function saveTickerList(
       error: `The combined watchlist and holdings cannot exceed ${MAX_TRACKED_TICKERS} unique tickers.`
     }, 400);
   }
-  await env.STOCK_TRACKER_KV.put(key, JSON.stringify(tickers));
+  await env.WTRACK_KV.put(key, JSON.stringify(tickers));
   return jsonResponse({ [key]: tickers });
 }
 
@@ -116,9 +103,6 @@ async function handleTickerList(
   env: Env,
   key: "watchlist" | "holdings"
 ): Promise<Response> {
-  const unauthorized = authorize(request, env);
-  if (unauthorized) return unauthorized;
-
   if (request.method === "GET") {
     return jsonResponse({ [key]: await loadTickerList(env, key) });
   }
@@ -270,8 +254,6 @@ async function route(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ name: "wtrack", status: "ok" });
   }
   if (url.pathname === "/scan") {
-    const unauthorized = authorize(request, env);
-    if (unauthorized) return unauthorized;
     if (request.method !== "GET") {
       return jsonResponse({ error: "Method not allowed." }, 405);
     }

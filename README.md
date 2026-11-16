@@ -23,7 +23,7 @@ pnpm test
 Create the KV namespace and copy its returned ID into `wrangler.toml`, replacing `REPLACE_WITH_KV_NAMESPACE_ID`:
 
 ```sh
-pnpm exec wrangler kv namespace create STOCK_TRACKER_KV
+pnpm exec wrangler kv namespace create WTRACK_KV
 ```
 
 For local development, copy `.dev.vars.example` to `.dev.vars` and fill in the credentials. `.dev.vars` is gitignored. Start the Worker with:
@@ -32,16 +32,15 @@ For local development, copy `.dev.vars.example` to `.dev.vars` and fill in the c
 pnpm dev
 ```
 
-Set the watchlist and holdings locally through the authenticated endpoints. The request body replaces the existing list:
+Set the watchlist and holdings locally through the HTTP endpoints. The request body replaces the existing list:
 
 ```powershell
-$headers = @{ Authorization = "Bearer replace-with-a-long-random-token" }
 $body = @{ tickers = @("AAPL", "MSFT", "NVDA") } | ConvertTo-Json
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/watchlist `
-  -Headers $headers -ContentType "application/json" -Body $body
+  -ContentType "application/json" -Body $body
 ```
 
-Use `/holdings` in place of `/watchlist` to manage held positions. `GET /scan`, `GET /watchlist`, and `GET /holdings` require the same bearer token.
+Use `/holdings` in place of `/watchlist` to manage held positions.
 
 ## Deploy
 
@@ -51,13 +50,12 @@ Set production secrets. Wrangler prompts for each value; do not put secret value
 pnpm exec wrangler secret put ALPACA_API_KEY
 pnpm exec wrangler secret put ALPACA_API_SECRET_KEY
 pnpm exec wrangler secret put WEBHOOK_URL
-pnpm exec wrangler secret put ADMIN_TOKEN
 ```
 
 For Telegram, also set `TELEGRAM_CHAT_ID`. For Discord, set `WEBHOOK_URL` to the webhook URL. Initialize the production watchlist in KV, then deploy:
 
 ```sh
-pnpm exec wrangler kv key put watchlist '["AAPL","MSFT","NVDA"]' --binding STOCK_TRACKER_KV --remote
+pnpm exec wrangler kv key put watchlist '["AAPL","MSFT","NVDA"]' --binding WTRACK_KV --remote
 pnpm deploy
 ```
 
@@ -69,11 +67,7 @@ See [strategy-v1.md](./strategy-v1.md) for the complete, versioned strategy and 
 
 ## HTTP API
 
-All endpoints except `GET /` require:
-
-```http
-Authorization: Bearer <ADMIN_TOKEN>
-```
+No endpoint currently requires authentication. Do not expose this Worker publicly until you add an access-control mechanism; anyone who can reach it can trigger scans and update the watchlist or holdings.
 
 - `GET /scan` — manually run a scan and return its results.
 - `GET /watchlist` / `POST /watchlist` — read or replace the watchlist.
