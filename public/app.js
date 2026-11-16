@@ -158,8 +158,8 @@ async function loadDashboard() {
   messageElement.textContent = "Loading latest saved data…";
   try {
     const [healthResponse, watchlistResponse] = await Promise.all([
-      fetch("/ping", { cache: "no-store" }),
-      fetch("/watchlist", { cache: "no-store" })
+      fetch("/admin/ping", { cache: "no-store" }),
+      fetch("/admin/watchlist", { cache: "no-store" })
     ]);
     if (!healthResponse.ok || !watchlistResponse.ok) {
       throw new Error("The dashboard API returned an error.");

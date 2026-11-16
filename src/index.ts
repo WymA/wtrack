@@ -320,14 +320,23 @@ function isAfterRegularMarketClose(date: Date): boolean {
 
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  if (url.pathname === "/ping" && request.method === "GET") {
+  if (url.pathname === "/admin/ping") {
+    if (request.method !== "GET") {
+      return jsonResponse({ error: "Method not allowed." }, 405);
+    }
     return jsonResponse({ name: "wtrack", status: "ok" });
   }
-  if (url.pathname === "/scan") {
+  if (url.pathname === "/admin/scan") {
     if (request.method !== "GET") {
       return jsonResponse({ error: "Method not allowed." }, 405);
     }
     return jsonResponse(await runScan(env));
+  }
+  if (url.pathname === "/admin/watchlist") {
+    if (request.method !== "GET") {
+      return jsonResponse({ error: "Method not allowed." }, 405);
+    }
+    return handleTickerList(env);
   }
   if (url.pathname === "/admin" || url.pathname === "/admin/") {
     if (request.method !== "GET") {
@@ -337,12 +346,6 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
   if (url.pathname === "/") {
     return env.ASSETS.fetch(request);
-  }
-  if (url.pathname === "/watchlist") {
-    if (request.method !== "GET") {
-      return jsonResponse({ error: "Method not allowed." }, 405);
-    }
-    return handleTickerList(env);
   }
   return env.ASSETS.fetch(request);
 }

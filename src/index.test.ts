@@ -26,14 +26,14 @@ function createEnv(values: Map<string, string>) {
   return { env, assetsFetch };
 }
 
-describe("watchlist endpoint", () => {
+describe("admin actions", () => {
   it("merges and removes the legacy holdings list", async () => {
     const values = new Map([
       ["watchlist", '["aapl","MSFT"]'],
       ["holdings", '["MSFT","NVDA"]']
     ]);
     const { env } = createEnv(values);
-    const request = new Request("https://wtrack.example/watchlist");
+    const request = new Request("https://wtrack.example/admin/watchlist");
 
     const response = await worker.fetch(request, env);
 
@@ -46,14 +46,14 @@ describe("watchlist endpoint", () => {
     expect(values.has("holdings")).toBe(false);
   });
 
-  it("does not expose a separate holdings endpoint", async () => {
+  it("does not expose the old standalone action routes", async () => {
     const { env, assetsFetch } = createEnv(new Map());
-    const request = new Request("https://wtrack.example/holdings");
-
-    const response = await worker.fetch(request, env);
-
-    expect(response.status).toBe(404);
-    expect(assetsFetch).toHaveBeenCalledOnce();
+    for (const path of ["/scan", "/ping", "/watchlist"]) {
+      const request = new Request(`https://wtrack.example${path}`);
+      const response = await worker.fetch(request, env);
+      expect(response.status).toBe(404);
+    }
+    expect(assetsFetch).toHaveBeenCalledTimes(3);
   });
 
   it("serves the admin page at /admin", async () => {
@@ -94,7 +94,7 @@ describe("watchlist endpoint", () => {
         success: false
       });
 
-      const response = await worker.fetch(new Request("https://wtrack.example/watchlist"), env);
+      const response = await worker.fetch(new Request("https://wtrack.example/admin/watchlist"), env);
       const payload = await response.json() as { lastScheduledRun: unknown };
       expect(payload.lastScheduledRun).toEqual(JSON.parse(storedRecord ?? ""));
     } finally {

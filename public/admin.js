@@ -3,9 +3,9 @@ const resultElement = document.querySelector("#action-result");
 const actionButtons = [...document.querySelectorAll("[data-action]")];
 
 const actionPaths = {
-  scan: "/scan",
-  ping: "/ping",
-  watchlist: "/watchlist"
+  scan: "/admin/scan",
+  ping: "/admin/ping",
+  watchlist: "/admin/watchlist"
 };
 
 async function runAction(action) {
