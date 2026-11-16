@@ -15,7 +15,7 @@ function createEnv(values: Map<string, string>) {
     }
   };
   const assetsFetch = vi.fn(async (request: Request) => {
-    if (new URL(request.url).pathname === "/admin.html") return new Response("Admin page");
+    if (new URL(request.url).pathname === "/admin") return new Response("Admin page");
     return new Response("Not found", { status: 404 });
   });
   const env = {
