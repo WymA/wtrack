@@ -27,16 +27,28 @@
   padding-top: 1.5rem;
 }
 
-.status-dot {
-  background: #9a3412;
-  border-radius: 50%;
-  display: inline-block;
-  height: 0.65rem;
-  width: 0.65rem;
+.theme-toggle {
+  align-items: center;
+  display: inline-flex;
+  height: 2.5rem;
+  justify-content: center;
+  padding: 0;
+  width: 2.5rem;
 }
 
-.status-dot.connected {
-  background: #16803c;
+.theme-icon {
+  fill: none;
+  height: 1.2rem;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 1.2rem;
+}
+
+[data-bs-theme="light"] .theme-icon-sun,
+[data-bs-theme="dark"] .theme-icon-moon {
+  display: none;
 }
 
 .legend-swatch {
@@ -69,14 +81,14 @@
   white-space: nowrap;
 }
 
-.ticker-table .entry-row > * {
+.entry-row > * {
   background-color: var(--entry-bg);
   background-image: none;
   border-bottom-color: var(--entry-border);
   color: var(--bs-body-color);
 }
 
-.ticker-table .exit-row > * {
+.exit-row > * {
   background-color: var(--exit-bg);
   background-image: none;
   border-bottom-color: var(--exit-border);

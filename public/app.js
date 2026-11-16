@@ -1,8 +1,5 @@
 const rowsElement = document.querySelector("#ticker-rows");
 const messageElement = document.querySelector("#data-message");
-const connectionStatusElement = document.querySelector("#connection-status");
-const connectionIndicator = document.querySelector("#connection-indicator");
-const refreshButton = document.querySelector("#refresh-button");
 const themeToggle = document.querySelector("#theme-toggle");
 const systemThemeButton = document.querySelector("#system-theme-button");
 const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -25,7 +22,9 @@ function displayNumber(value) {
 function setTheme(theme) {
   const isDark = theme === "dark";
   document.documentElement.setAttribute("data-bs-theme", isDark ? "dark" : "light");
-  themeToggle.textContent = isDark ? "Switch to light mode" : "Switch to dark mode";
+  const label = isDark ? "Switch to light mode" : "Switch to dark mode";
+  themeToggle.setAttribute("aria-label", label);
+  themeToggle.title = label;
 }
 
 function applySystemTheme() {
@@ -76,7 +75,6 @@ function renderTickers(tickers) {
 
     const signalCell = addCell(row, "");
     renderSignals(signalCell, signals);
-    addCell(row, ticker.sufficientHistory ? "300 bars" : `${ticker.historyBars}/300 bars`);
     rowsElement.append(row);
   }
 
@@ -154,7 +152,6 @@ function renderSnapshot(payload) {
 }
 
 async function loadDashboard() {
-  refreshButton.disabled = true;
   messageElement.textContent = "Loading latest saved data…";
   try {
     const [healthResponse, watchlistResponse] = await Promise.all([
@@ -167,18 +164,11 @@ async function loadDashboard() {
 
     const payload = await watchlistResponse.json();
     renderSnapshot(payload);
-    connectionStatusElement.textContent = "Connected";
-    connectionIndicator.classList.add("connected");
   } catch (error) {
     messageElement.textContent = error instanceof Error ? error.message : "Unable to load dashboard data.";
-    connectionStatusElement.textContent = "Connection error";
-    connectionIndicator.classList.remove("connected");
-  } finally {
-    refreshButton.disabled = false;
   }
 }
 
-refreshButton.addEventListener("click", loadDashboard);
 themeToggle.addEventListener("click", () => {
   followsSystemTheme = false;
   systemThemeButton.hidden = false;
@@ -193,5 +183,6 @@ systemThemeButton.addEventListener("click", () => {
 systemColorScheme.addEventListener("change", () => {
   if (followsSystemTheme) applySystemTheme();
 });
+setTheme(document.documentElement.getAttribute("data-bs-theme") ?? "light");
 void loadDashboard();
 window.setInterval(loadDashboard, 5 * 60 * 1000);
