@@ -4,6 +4,9 @@ const connectionStatusElement = document.querySelector("#connection-status");
 const connectionIndicator = document.querySelector("#connection-indicator");
 const refreshButton = document.querySelector("#refresh-button");
 const themeToggle = document.querySelector("#theme-toggle");
+const systemThemeButton = document.querySelector("#system-theme-button");
+const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+let followsSystemTheme = true;
 
 const money = new Intl.NumberFormat(undefined, {
   style: "currency",
@@ -19,8 +22,11 @@ function displayNumber(value) {
 function setTheme(theme) {
   const isDark = theme === "dark";
   document.documentElement.setAttribute("data-bs-theme", isDark ? "dark" : "light");
-  themeToggle.setAttribute("aria-pressed", String(isDark));
   themeToggle.textContent = isDark ? "Switch to light mode" : "Switch to dark mode";
+}
+
+function applySystemTheme() {
+  setTheme(systemColorScheme.matches ? "dark" : "light");
 }
 
 function addCell(row, value) {
@@ -136,8 +142,18 @@ async function loadDashboard() {
 
 refreshButton.addEventListener("click", loadDashboard);
 themeToggle.addEventListener("click", () => {
+  followsSystemTheme = false;
+  systemThemeButton.hidden = false;
   const currentTheme = document.documentElement.getAttribute("data-bs-theme");
   setTheme(currentTheme === "dark" ? "light" : "dark");
+});
+systemThemeButton.addEventListener("click", () => {
+  followsSystemTheme = true;
+  systemThemeButton.hidden = true;
+  applySystemTheme();
+});
+systemColorScheme.addEventListener("change", () => {
+  if (followsSystemTheme) applySystemTheme();
 });
 void loadDashboard();
 window.setInterval(loadDashboard, 5 * 60 * 1000);

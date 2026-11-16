@@ -2,7 +2,7 @@
 
 A TypeScript Cloudflare Worker that scans a configured US-stock watchlist for long-only stacked EMA setups and exit signals, then sends alerts to Discord-compatible webhooks or Telegram. It sends alerts only and never places trades. Signals are informational, not investment advice.
 
-The root URL serves a static Bootstrap dashboard, using the default light theme with a light/dark mode toggle. It shows the latest saved close, EMAs, five-day low, scan status, and entry/exit signals.
+The root URL serves a static Bootstrap dashboard that follows the system light/dark preference by default, with a manual theme toggle. It shows the latest saved close, EMAs, five-day low, scan status, and entry/exit signals.
 
 ## Requirements
 
@@ -61,7 +61,7 @@ pnpm deploy
 
 For existing deployments, the first watchlist read or scan merges any saved symbols from the legacy `holdings` KV key into `watchlist`, then removes the old key.
 
-The configured cron triggers run at `20:30` and `21:30 UTC` on weekdays. The Worker runs the scan only at `16:30 America/New_York` (30 minutes after the regular US market close), so the active trigger adjusts for daylight saving time. It skips scans without a current-session SPY bar, such as on a market holiday. Early-close sessions are not separately scheduled.
+The configured cron triggers run at `21:30 UTC` on weekdays. The Worker runs the scan only at `16:30 America/New_York` (30 minutes after the regular US market close), so the active trigger adjusts for daylight saving time. It skips scans without a current-session SPY bar, such as on a market holiday. Early-close sessions are not separately scheduled.
 
 ## Strategy
 
