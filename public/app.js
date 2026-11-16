@@ -19,6 +19,15 @@ function displayNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? money.format(value) : "—";
 }
 
+function displayChange(value, formatter) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${value > 0 ? "+" : ""}${formatter(value)}`;
+}
+
+function displayPercent(value) {
+  return displayChange(value, (number) => `${number.toFixed(2)}%`);
+}
+
 function setTheme(theme) {
   const isDark = theme === "dark";
   document.documentElement.setAttribute("data-bs-theme", isDark ? "dark" : "light");
@@ -67,6 +76,8 @@ function renderTickers(tickers) {
     addCell(row, ticker.ticker);
     addCell(row, ticker.asOfDate ?? "—");
     addCell(row, displayNumber(ticker.close));
+    addCell(row, displayChange(ticker.change, (number) => money.format(number)));
+    addCell(row, displayPercent(ticker.changePercent));
     addCell(row, displayNumber(ticker.stopLoss));
     addCell(row, displayNumber(ticker.ema20));
     addCell(row, displayNumber(ticker.ema50));
@@ -79,6 +90,16 @@ function renderTickers(tickers) {
   }
 
   document.querySelector("#ticker-count").textContent = String(tickers.length);
+}
+
+function renderMarketProxy(symbol, price, scannedAt) {
+  document.querySelector(`#${symbol}-price`).textContent = displayNumber(price?.close);
+  document.querySelector(`#${symbol}-change`).textContent =
+    `Change: ${displayChange(price?.change, (number) => money.format(number))} (${displayPercent(price?.changePercent)})`;
+  const savedAt = new Date(scannedAt);
+  document.querySelector(`#${symbol}-date`).textContent = price?.asOfDate
+    ? `Daily close: ${price.asOfDate} · Saved: ${Number.isFinite(savedAt.getTime()) ? savedAt.toLocaleString() : "—"}`
+    : "No daily data yet";
 }
 
 function renderScheduledRun(record) {
@@ -120,6 +141,8 @@ function renderSnapshot(payload) {
     : [];
   renderScheduledRun(payload.lastScheduledRun);
   renderTickers(tickers);
+  renderMarketProxy("spy", snapshot?.marketProxies?.spy, snapshot?.scannedAt);
+  renderMarketProxy("qqq", snapshot?.marketProxies?.qqq, snapshot?.scannedAt);
 
   if (!snapshot) {
     document.querySelector("#session-date").textContent = "—";

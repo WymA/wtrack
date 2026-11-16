@@ -4,6 +4,8 @@ A TypeScript Cloudflare Worker that scans a configured US-stock watchlist for lo
 
 The root URL serves a static Bootstrap dashboard that follows the system light/dark preference by default, with a manual theme toggle. It shows the latest saved close, EMAs, five-day low, scan status, entry/exit signals, and the last scheduled run result.
 
+The market cards show SPY (an S&P 500 ETF) and QQQ (a Nasdaq-100 ETF) as proxies, not actual index levels or live quotes. The prices and changes use Alpaca IEX daily bars: change is the latest close minus the previous available close, and percentage change is relative to that previous close. Each card shows the bar's session date and the snapshot save time. New fields appear after the next scan.
+
 ## Requirements
 
 - Node.js and pnpm
@@ -71,7 +73,7 @@ See [strategy-v1.md](./strategy-v1.md) for the complete, versioned strategy and 
 
 The `/admin` page provides buttons to run a scan, check Worker health, and read the watchlist. The page and its actions have no authentication; anyone who can reach the Worker can use them. Do not expose it publicly until you add an access-control mechanism.
 
-The watchlist supports up to 200 unique symbols. Each scan checks all listed symbols for exit signals, regardless of the SPY entry filter, and checks for entry setups when the filter passes.
+The watchlist supports up to 200 unique symbols. Each scan checks all listed symbols for exit signals, regardless of the SPY entry filter, and checks for entry setups when the filter passes. SPY and QQQ are fetched for the market cards even when they are not on the watchlist; only SPY is used for the entry filter.
 
 ### Run a scheduled event locally
 

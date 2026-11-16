@@ -48,6 +48,29 @@
         </div>
       </header>
 
+      <section class="row g-3 mb-4" aria-label="Market ETF proxies">
+        <div class="col-12 col-md-6">
+          <article class="card h-100">
+            <div class="card-body d-flex flex-column gap-1">
+              <h2 class="h6 mb-0">S&amp;P 500 proxy · SPY ETF</h2>
+              <strong id="spy-price" class="fs-5">—</strong>
+              <span id="spy-change">Change: —</span>
+              <span id="spy-date" class="text-body-secondary small">No daily data yet</span>
+            </div>
+          </article>
+        </div>
+        <div class="col-12 col-md-6">
+          <article class="card h-100">
+            <div class="card-body d-flex flex-column gap-1">
+              <h2 class="h6 mb-0">Nasdaq-100 proxy · QQQ ETF</h2>
+              <strong id="qqq-price" class="fs-5">—</strong>
+              <span id="qqq-change">Change: —</span>
+              <span id="qqq-date" class="text-body-secondary small">No daily data yet</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section class="row g-3 mb-4" aria-label="Latest scan summary">
         <div class="col-12 col-md-4">
           <article class="card h-100">
@@ -83,7 +106,7 @@
           <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3">
             <div>
               <h2 class="h4 mb-1">Latest closes and EMAs</h2>
-              <p class="text-body-secondary mb-0">Values are saved by the scheduled daily scan.</p>
+              <p class="text-body-secondary mb-0">Daily closes and changes from the previous available close, saved by the scan.</p>
             </div>
           </div>
 
@@ -104,6 +127,8 @@
                   <th scope="col">Ticker</th>
                   <th scope="col">Data date</th>
                   <th scope="col">Close</th>
+                  <th scope="col">Change</th>
+                  <th scope="col">Change %</th>
                   <th scope="col">5-day low</th>
                   <th scope="col">EMA 20</th>
                   <th scope="col">EMA 50</th>

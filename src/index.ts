@@ -20,17 +20,21 @@ interface ScanResult {
   marketRegime: {
     passes: boolean;
     spy: BenchmarkSummary;
-    qqq: BenchmarkSummary;
   };
   alerts: StockAlert[];
   notified: StockAlert[];
   skipped: Array<{ ticker: string; reason: string }>;
 }
 
-interface TickerSnapshot {
-  ticker: string;
+interface DailyPrice {
   asOfDate: string | null;
   close: number | null;
+  change: number | null;
+  changePercent: number | null;
+}
+
+interface TickerSnapshot extends DailyPrice {
+  ticker: string;
   stopLoss: number | null;
   ema20: number | null;
   ema50: number | null;
@@ -46,6 +50,7 @@ interface DashboardSnapshot {
   sessionDate: string;
   status: ScanResult["status"];
   marketRegime: ScanResult["marketRegime"];
+  marketProxies: { spy: DailyPrice; qqq: DailyPrice };
   tickers: TickerSnapshot[];
 }
 
@@ -175,11 +180,11 @@ function createTickerSnapshot(
 ): TickerSnapshot {
   const index = bars.length - 1;
   const latest = bars[index];
+  const price = getDailyPrice(bars);
   if (latest === undefined) {
     return {
       ticker,
-      asOfDate: null,
-      close: null,
+      ...price,
       stopLoss: null,
       ema20: null,
       ema50: null,
@@ -195,8 +200,7 @@ function createTickerSnapshot(
   const recentBars = bars.slice(-5);
   return {
     ticker,
-    asOfDate: latest.timestamp.slice(0, 10),
-    close: latest.close,
+    ...price,
     stopLoss: recentBars.length > 0 ? Math.min(...recentBars.map((bar) => bar.low)) : null,
     ema20: indicators.ema20[index] ?? null,
     ema50: indicators.ema50[index] ?? null,
@@ -205,6 +209,22 @@ function createTickerSnapshot(
     historyBars: bars.length,
     sufficientHistory: bars.length >= REQUIRED_DAILY_BARS,
     signals
+  };
+}
+
+function getDailyPrice(bars: readonly Bar[]): DailyPrice {
+  const latest = bars[bars.length - 1];
+  const previous = bars[bars.length - 2];
+  const change = latest !== undefined && previous !== undefined
+    ? latest.close - previous.close
+    : null;
+  return {
+    asOfDate: latest?.timestamp.slice(0, 10) ?? null,
+    close: latest?.close ?? null,
+    change,
+    changePercent: change !== null && previous !== undefined && previous.close > 0
+      ? change / previous.close * 100
+      : null
   };
 }
 
@@ -228,6 +248,10 @@ function createDashboardSnapshot(
     sessionDate: date,
     status,
     marketRegime,
+    marketProxies: {
+      spy: getDailyPrice(data.SPY ?? []),
+      qqq: getDailyPrice(data.QQQ ?? [])
+    },
     tickers: tickers.map((ticker) =>
       createTickerSnapshot(ticker, data[ticker] ?? [], signalsByTicker.get(ticker) ?? [])
     )
@@ -239,17 +263,14 @@ async function runScan(env: Env): Promise<ScanResult> {
   const tickersToFetch = [...new Set(["SPY", "QQQ", ...watchlist])];
   const data = await fetchDailyBars(tickersToFetch, env);
   const spyBars = data.SPY ?? [];
-  const qqqBars = data.QQQ ?? [];
-  if (spyBars.length < REQUIRED_DAILY_BARS || qqqBars.length < REQUIRED_DAILY_BARS) {
-    throw new Error(`SPY and QQQ must each have at least ${REQUIRED_DAILY_BARS} daily bars.`);
+  if (spyBars.length < REQUIRED_DAILY_BARS) {
+    throw new Error(`SPY must have at least ${REQUIRED_DAILY_BARS} daily bars.`);
   }
 
   const spyIndicators = calculateIndicators(spyBars);
-  const qqqIndicators = calculateIndicators(qqqBars);
   const marketRegime = {
     passes: marketRegimePasses(spyBars, spyIndicators),
-    spy: getBenchmarkSummary(spyBars, spyIndicators),
-    qqq: getBenchmarkSummary(qqqBars, qqqIndicators)
+    spy: getBenchmarkSummary(spyBars, spyIndicators)
   };
   const date = currentNewYorkDate(new Date());
   const latestSpyBar = spyBars[spyBars.length - 1];

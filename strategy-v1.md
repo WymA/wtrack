@@ -10,7 +10,7 @@ Daily, long-only EMA trend-following signals. This strategy does not define shor
 
 ## Entry filter
 
-Consider new buy setups only when SPY closes above both its 50 EMA and 200 EMA. The filter does not suppress exit checks. QQQ is a reference benchmark and does not change this entry filter.
+Consider new buy setups only when SPY closes above both its 50 EMA and 200 EMA. The filter does not suppress exit checks.
 
 ## Setup A: Stacked Pullback
 

@@ -27,6 +27,74 @@ function createEnv(values: Map<string, string>) {
 }
 
 describe("admin actions", () => {
+  it.each([
+    { watchlist: ["AAPL"], expectedSymbols: ["SPY", "QQQ", "AAPL"], previous: 100, change: -10, percent: -10 },
+    { watchlist: ["AAPL"], expectedSymbols: ["SPY", "QQQ", "AAPL"], previous: 0, change: 90, percent: null },
+    { watchlist: ["AAPL"], expectedSymbols: ["SPY", "QQQ", "AAPL"], previous: null, change: null, percent: null },
+    { watchlist: ["QQQ"], expectedSymbols: ["SPY", "QQQ"], previous: 100, change: -10, percent: -10 }
+  ])("stores daily changes for $watchlist with previous close $previous", async ({
+    watchlist, expectedSymbols, previous, change, percent
+  }) => {
+    const values = new Map([["watchlist", JSON.stringify(watchlist)]]);
+    const { env } = createEnv(values);
+    env.ALPACA_API_KEY = "test-key";
+    env.ALPACA_API_SECRET_KEY = "test-secret";
+    const now = new Date("2026-11-16T21:30:00Z");
+    const bars = Array.from({ length: 300 }, (_, index) => ({
+      t: new Date(now.getTime() - (299 - index) * 86_400_000).toISOString(),
+      o: 100, h: 101, l: 99, c: 100, v: 1_000
+    }));
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(input.toString());
+      const symbols = (url.searchParams.get("symbols") ?? "").split(",");
+      return Response.json({
+        bars: Object.fromEntries(symbols.map((symbol) => [
+          symbol,
+          symbol === "SPY" ? bars : watchlist.includes(symbol)
+            ? [
+              ...(previous === null ? [] : [{ ...bars[298], c: previous }]),
+              { ...bars[299], c: 90 }
+            ]
+            : []
+        ])),
+        next_page_token: null
+      });
+    });
+
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      const response = await worker.fetch(new Request("https://wtrack.example/admin/scan"), env);
+      expect(response.status).toBe(200);
+      const result = await response.json() as { status: string; marketRegime: Record<string, unknown> };
+      expect(result.status).toBe("completed");
+      expect(result.marketRegime).toEqual({
+        passes: false,
+        spy: { close: 100, ema50: expect.any(Number), ema200: expect.any(Number) }
+      });
+      expect(fetcher).toHaveBeenCalledOnce();
+      const url = new URL(String(fetcher.mock.calls[0]?.[0]));
+      expect(url.searchParams.get("symbols")?.split(",")).toEqual(expectedSymbols);
+      const snapshot = JSON.parse(values.get("latest-scan") ?? "") as {
+        tickers: { ticker: string; change: number | null; changePercent: number | null }[];
+        marketProxies: {
+          spy: { close: number | null; change: number | null; changePercent: number | null };
+          qqq: { close: number | null; change: number | null; changePercent: number | null; asOfDate: string | null };
+        };
+      };
+      expect(snapshot.tickers.map((ticker) => ticker.ticker)).toEqual(watchlist);
+      expect(snapshot.tickers[0]).toMatchObject({ change, changePercent: percent });
+      expect(snapshot.marketProxies.spy).toMatchObject({ close: 100, change: 0, changePercent: 0 });
+      expect(snapshot.marketProxies.qqq).toMatchObject(watchlist.includes("QQQ")
+        ? { close: 90, change, changePercent: percent, asOfDate: "2026-11-16" }
+        : { close: null, change: null, changePercent: null, asOfDate: null });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it("merges and removes the legacy holdings list", async () => {
     const values = new Map([
       ["watchlist", '["aapl","MSFT"]'],
