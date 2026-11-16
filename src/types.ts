@@ -33,6 +33,6 @@ export interface Env {
   ASSETS: Fetcher;
   ALPACA_API_KEY: string;
   ALPACA_API_SECRET_KEY: string;
-  WEBHOOK_URL: string;
+  WEBHOOK_URL?: string | null;
   TELEGRAM_CHAT_ID?: string;
 }

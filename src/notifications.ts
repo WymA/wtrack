@@ -44,9 +44,8 @@ function parseAlertHistory(value: string | null): Set<string> {
   return new Set(parsed);
 }
 
-async function postWebhook(message: string, env: Env): Promise<void> {
-  if (!env.WEBHOOK_URL) throw new Error("WEBHOOK_URL must be configured before sending alerts.");
-  const url = new URL(env.WEBHOOK_URL);
+async function postWebhook(message: string, webhookUrl: string, env: Env): Promise<void> {
+  const url = new URL(webhookUrl);
   let body: Record<string, unknown>;
 
   if (url.hostname === "api.telegram.org") {
@@ -77,6 +76,11 @@ export async function sendNewAlerts(
   env: Env
 ): Promise<StockAlert[]> {
   if (alerts.length === 0) return [];
+  const webhookUrl = env.WEBHOOK_URL?.trim();
+  if (!webhookUrl) {
+    console.info("Webhook notifications are disabled; signals remain available in the scan.");
+    return [];
+  }
 
   const historyKey = `alerts:${date}`;
   const sentIds = parseAlertHistory(await env.WTRACK_KV.get(historyKey));
@@ -88,7 +92,7 @@ export async function sendNewAlerts(
       `Daily stock scan — ${date}`,
       ...chunk.map(formatAlert)
     ].join("\n");
-    await postWebhook(message, env);
+    await postWebhook(message, webhookUrl, env);
 
     for (const alert of chunk) {
       sentIds.add(`${alert.ticker}:${alert.type}`);

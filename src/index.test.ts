@@ -27,6 +27,40 @@ function createEnv(values: Map<string, string>) {
 }
 
 describe("admin actions", () => {
+  it("completes scans with signals when notifications are not configured", async () => {
+    const values = new Map([["watchlist", '["AAPL"]']]);
+    const { env } = createEnv(values);
+    env.ALPACA_API_KEY = "test-key";
+    env.ALPACA_API_SECRET_KEY = "test-secret";
+    const now = new Date("2026-11-16T21:30:00Z");
+    const bars = Array.from({ length: 300 }, (_, index) => ({
+      t: new Date(now.getTime() - (299 - index) * 86_400_000).toISOString(),
+      o: 100, h: 101, l: 89, c: 100, v: 1_000
+    }));
+    const declining = bars.map((bar, index) => ({ ...bar, c: index >= 298 ? 90 : 100 }));
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      bars: { SPY: bars, QQQ: bars, AAPL: declining },
+      next_page_token: null
+    })));
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const response = await worker.fetch(new Request("https://wtrack.example/admin/scan"), env);
+      expect(response.status).toBe(200);
+      const result = await response.json() as { alerts: { type: string }[]; notified: unknown[] };
+      expect(result.alerts.map((alert) => alert.type)).toEqual(["Exit Tier 2", "Exit Tier 3"]);
+      expect(result.notified).toEqual([]);
+      const snapshot = JSON.parse(values.get("latest-scan") ?? "") as { tickers: { signals: string[] }[] };
+      expect(snapshot.tickers[0]?.signals).toEqual(["Exit Tier 2", "Exit Tier 3"]);
+      expect(values.has("alerts:2026-11-16")).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+      log.mockRestore();
+    }
+  });
+
   it.each([
     { watchlist: ["AAPL"], expectedSymbols: ["SPY", "QQQ", "AAPL"], previous: 100, change: -10, percent: -10 },
     { watchlist: ["AAPL"], expectedSymbols: ["SPY", "QQQ", "AAPL"], previous: 0, change: 90, percent: null },

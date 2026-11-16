@@ -1,6 +1,6 @@
 # Stock Tracker Cloudflare Worker
 
-A TypeScript Cloudflare Worker that scans a configured US-stock watchlist for long-only stacked EMA setups and exit signals, then sends alerts to Discord-compatible webhooks or Telegram. It sends alerts only and never places trades. Signals are informational, not investment advice.
+A TypeScript Cloudflare Worker that scans a configured US-stock watchlist for long-only stacked EMA setups and exit signals, with optional Discord-compatible webhook or Telegram alerts. It never places trades. Signals are informational, not investment advice.
 
 The root URL serves a static Bootstrap dashboard that follows the system light/dark preference by default, with a manual theme toggle. It shows the latest saved close, EMAs, five-day low, scan status, entry/exit signals, and the last scheduled run result.
 
@@ -11,7 +11,7 @@ The market cards show SPY (an S&P 500 ETF) and QQQ (a Nasdaq-100 ETF) as proxies
 - Node.js and pnpm
 - A Cloudflare account with Workers and KV enabled
 - Alpaca Market Data API credentials (uses the free IEX feed)
-- A Discord webhook URL or Telegram bot `sendMessage` URL
+- Optional: a Discord webhook URL or Telegram bot `sendMessage` URL for notifications
 
 If pnpm is unavailable, install it first with `npm install --global pnpm`.
 
@@ -51,10 +51,11 @@ Set production secrets. Wrangler prompts for each value; do not put secret value
 ```sh
 pnpm exec wrangler secret put ALPACA_API_KEY
 pnpm exec wrangler secret put ALPACA_API_SECRET_KEY
-pnpm exec wrangler secret put WEBHOOK_URL
 ```
 
-For Telegram, also set `TELEGRAM_CHAT_ID`. For Discord, set `WEBHOOK_URL` to the webhook URL. Initialize the production watchlist in KV, then deploy:
+Notifications are optional. If `WEBHOOK_URL` is unset or empty, scans still save signals to the dashboard but send no notifications and do not mark alerts as sent. To enable notifications, set `WEBHOOK_URL` with `pnpm exec wrangler secret put WEBHOOK_URL`. For Telegram, also set `TELEGRAM_CHAT_ID`. A configured webhook that fails still causes the scan to report an error.
+
+Initialize the production watchlist in KV, then deploy:
 
 ```sh
 pnpm exec wrangler kv key put watchlist '["AAPL","MSFT","NVDA"]' --binding WTRACK_KV --remote
