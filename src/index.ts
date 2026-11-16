@@ -6,6 +6,7 @@ import type { Bar, Env, IndicatorSeries, SignalType, StockAlert } from "./types"
 
 const MAX_TRACKED_TICKERS = 200;
 const TICKER_PATTERN = /^[A-Z][A-Z0-9.-]{0,14}$/;
+const LEGACY_HOLDINGS_KEY = "holdings";
 
 interface BenchmarkSummary {
   close: number;
@@ -73,24 +74,35 @@ function normalizeTickerList(value: unknown): string[] {
   return [...new Set(tickers)];
 }
 
-async function loadTickerList(env: Env, key: "watchlist" | "holdings"): Promise<string[]> {
-  const value = await env.WTRACK_KV.get(key);
-  if (value === null) return [];
-  const parsed: unknown = JSON.parse(value);
-  return normalizeTickerList(parsed);
+async function loadTickerList(env: Env): Promise<string[]> {
+  const [watchlistValue, legacyHoldingsValue] = await Promise.all([
+    env.WTRACK_KV.get("watchlist"),
+    env.WTRACK_KV.get(LEGACY_HOLDINGS_KEY)
+  ]);
+  const watchlist: unknown = watchlistValue === null ? [] : JSON.parse(watchlistValue);
+  const legacyHoldings: unknown = legacyHoldingsValue === null ? [] : JSON.parse(legacyHoldingsValue);
+  const tickers = [...new Set([
+    ...normalizeTickerList(watchlist),
+    ...normalizeTickerList(legacyHoldings)
+  ])];
+
+  if (tickers.length > MAX_TRACKED_TICKERS) {
+    throw new Error(`The watchlist cannot exceed ${MAX_TRACKED_TICKERS} tickers.`);
+  }
+  if (legacyHoldingsValue !== null) {
+    await env.WTRACK_KV.put("watchlist", JSON.stringify(tickers));
+    await env.WTRACK_KV.delete(LEGACY_HOLDINGS_KEY);
+  }
+  return tickers;
 }
 
-async function handleTickerList(
-  env: Env,
-  key: "watchlist" | "holdings"
-): Promise<Response> {
-  const tickers = await loadTickerList(env, key);
-  if (key === "watchlist") {
-    const storedSnapshot = await env.WTRACK_KV.get(DASHBOARD_SNAPSHOT_KEY);
-    const snapshot: unknown = storedSnapshot === null ? null : JSON.parse(storedSnapshot);
-    return jsonResponse({ watchlist: tickers, snapshot });
-  }
-  return jsonResponse({ holdings: tickers });
+async function handleTickerList(env: Env): Promise<Response> {
+  const [tickers, storedSnapshot] = await Promise.all([
+    loadTickerList(env),
+    env.WTRACK_KV.get(DASHBOARD_SNAPSHOT_KEY)
+  ]);
+  const snapshot: unknown = storedSnapshot === null ? null : JSON.parse(storedSnapshot);
+  return jsonResponse({ watchlist: tickers, snapshot });
 }
 
 function currentNewYorkDate(date: Date): string {
@@ -220,16 +232,8 @@ function createDashboardSnapshot(
 }
 
 async function runScan(env: Env): Promise<ScanResult> {
-  const [watchlist, holdings] = await Promise.all([
-    loadTickerList(env, "watchlist"),
-    loadTickerList(env, "holdings")
-  ]);
-  const tickerSet = new Set([...watchlist, ...holdings]);
-  if (tickerSet.size > MAX_TRACKED_TICKERS) {
-    throw new Error(`The combined watchlist and holdings cannot exceed ${MAX_TRACKED_TICKERS} tickers.`);
-  }
-
-  const tickers = [...new Set(["SPY", "QQQ", ...tickerSet])];
+  const watchlist = await loadTickerList(env);
+  const tickers = [...new Set(["SPY", "QQQ", ...watchlist])];
   const data = await fetchDailyBars(tickers, env);
   const spyBars = data.SPY ?? [];
   const qqqBars = data.QQQ ?? [];
@@ -268,10 +272,9 @@ async function runScan(env: Env): Promise<ScanResult> {
     };
   }
 
-  const heldTickers = new Set(holdings);
   const alerts: StockAlert[] = [];
 
-  for (const ticker of holdings) {
+  for (const ticker of watchlist) {
     const bars = data[ticker] ?? [];
     if (bars.length < REQUIRED_DAILY_BARS) {
       skipped.push({ ticker, reason: `Fewer than ${REQUIRED_DAILY_BARS} daily bars are available.` });
@@ -281,17 +284,7 @@ async function runScan(env: Env): Promise<ScanResult> {
     for (const signal of evaluateExitSignals(bars, indicators)) {
       alerts.push(createAlert(ticker, signal, bars, indicators, date));
     }
-  }
-
-  if (marketRegime.passes) {
-    for (const ticker of watchlist) {
-      if (heldTickers.has(ticker)) continue;
-      const bars = data[ticker] ?? [];
-      if (bars.length < REQUIRED_DAILY_BARS) {
-        skipped.push({ ticker, reason: `Fewer than ${REQUIRED_DAILY_BARS} daily bars are available.` });
-        continue;
-      }
-      const indicators = calculateIndicators(bars);
+    if (marketRegime.passes) {
       const signal = evaluateBuySetup(bars, indicators);
       if (signal) alerts.push(createAlert(ticker, signal, bars, indicators, date));
     }
@@ -336,12 +329,11 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (url.pathname === "/") {
     return env.ASSETS.fetch(request);
   }
-  if (url.pathname === "/holdings" || url.pathname === "/watchlist") {
+  if (url.pathname === "/watchlist") {
     if (request.method !== "GET") {
       return jsonResponse({ error: "Method not allowed." }, 405);
     }
-    const key = url.pathname === "/holdings" ? "holdings" : "watchlist";
-    return handleTickerList(env, key);
+    return handleTickerList(env);
   }
   return env.ASSETS.fetch(request);
 }

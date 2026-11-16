@@ -32,7 +32,7 @@ All conditions must hold:
 
 ## Exit alerts
 
-Check held tickers regardless of the SPY entry filter:
+Check all configured watchlist tickers regardless of the SPY entry filter:
 
 - **Tier 2:** Alert after two consecutive daily closes below their respective 50 EMA values.
 - **Tier 3:** Alert after two consecutive daily closes below their respective 100 EMA values.

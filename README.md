@@ -1,6 +1,6 @@
 # Stock Tracker Cloudflare Worker
 
-A TypeScript Cloudflare Worker that scans a configured US-stock watchlist for long-only stacked EMA setups, checks exits for held positions, and sends alerts to Discord-compatible webhooks or Telegram. It sends alerts only and never places trades. Signals are informational, not investment advice.
+A TypeScript Cloudflare Worker that scans a configured US-stock watchlist for long-only stacked EMA setups and exit signals, then sends alerts to Discord-compatible webhooks or Telegram. It sends alerts only and never places trades. Signals are informational, not investment advice.
 
 The root URL serves a static Bootstrap dashboard, using the default light theme with a light/dark mode toggle. It shows the latest saved close, EMAs, five-day low, scan status, and entry/exit signals.
 
@@ -34,11 +34,10 @@ For local development, copy `.dev.vars.example` to `.dev.vars` and fill in the c
 pnpm dev
 ```
 
-Initialize the local watchlist and holdings in the local KV store:
+Initialize the local watchlist in the local KV store:
 
 ```sh
 pnpm exec wrangler kv key put watchlist '["AAPL","MSFT","NVDA"]' --binding WTRACK_KV --local
-pnpm exec wrangler kv key put holdings '[]' --binding WTRACK_KV --local
 ```
 
 The HTTP endpoints are read-only. Update the lists with Wrangler KV commands.
@@ -57,9 +56,10 @@ For Telegram, also set `TELEGRAM_CHAT_ID`. For Discord, set `WEBHOOK_URL` to the
 
 ```sh
 pnpm exec wrangler kv key put watchlist '["AAPL","MSFT","NVDA"]' --binding WTRACK_KV --remote
-pnpm exec wrangler kv key put holdings '[]' --binding WTRACK_KV --remote
 pnpm deploy
 ```
+
+For existing deployments, the first watchlist read or scan merges any saved symbols from the legacy `holdings` KV key into `watchlist`, then removes the old key.
 
 The configured cron triggers run at `20:30` and `21:30 UTC` on weekdays. The Worker runs the scan only at `16:30 America/New_York` (30 minutes after the regular US market close), so the active trigger adjusts for daylight saving time. It skips scans without a current-session SPY bar, such as on a market holiday. Early-close sessions are not separately scheduled.
 
@@ -69,15 +69,14 @@ See [strategy-v1.md](./strategy-v1.md) for the complete, versioned strategy and 
 
 ## HTTP API
 
-No endpoint currently requires authentication. Anyone who can reach the Worker can trigger scans and read the watchlist or holdings. Do not expose it publicly until you add an access-control mechanism.
+No endpoint currently requires authentication. Anyone who can reach the Worker can trigger scans and read the watchlist. Do not expose it publicly until you add an access-control mechanism.
 
 - `GET /` — static dashboard.
 - `GET /ping` — health check.
 - `GET /watchlist` — read the watchlist and latest saved scan snapshot for the dashboard.
-- `GET /holdings` — read held tickers.
 - `GET /scan` — manual scan endpoint, intentionally not linked from the dashboard.
 
-The combined watchlist and holdings limit is 200 unique symbols.
+The watchlist supports up to 200 unique symbols. Each scan checks all listed symbols for exit signals, regardless of the SPY entry filter, and checks for entry setups when the filter passes.
 
 ## Commands
 
