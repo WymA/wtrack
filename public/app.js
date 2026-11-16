@@ -115,7 +115,11 @@ function renderScheduledRun(record) {
 
 function renderSnapshot(payload) {
   const snapshot = payload.snapshot;
-  const tickers = Array.isArray(snapshot?.tickers) ? snapshot.tickers : [];
+  const watchlist = Array.isArray(payload.watchlist) ? payload.watchlist : [];
+  const watchlistSet = new Set(watchlist);
+  const tickers = Array.isArray(snapshot?.tickers)
+    ? snapshot.tickers.filter((ticker) => watchlistSet.has(ticker.ticker))
+    : [];
   renderScheduledRun(payload.lastScheduledRun);
   renderTickers(tickers);
 

@@ -236,8 +236,8 @@ function createDashboardSnapshot(
 
 async function runScan(env: Env): Promise<ScanResult> {
   const watchlist = await loadTickerList(env);
-  const tickers = [...new Set(["SPY", "QQQ", ...watchlist])];
-  const data = await fetchDailyBars(tickers, env);
+  const tickersToFetch = [...new Set(["SPY", "QQQ", ...watchlist])];
+  const data = await fetchDailyBars(tickersToFetch, env);
   const spyBars = data.SPY ?? [];
   const qqqBars = data.QQQ ?? [];
   if (spyBars.length < REQUIRED_DAILY_BARS || qqqBars.length < REQUIRED_DAILY_BARS) {
@@ -257,7 +257,7 @@ async function runScan(env: Env): Promise<ScanResult> {
 
   if (!latestSpyBar?.timestamp.startsWith(date)) {
     const snapshot = createDashboardSnapshot(
-      tickers,
+      watchlist,
       data,
       [],
       date,
@@ -294,7 +294,7 @@ async function runScan(env: Env): Promise<ScanResult> {
   }
 
   const snapshot = createDashboardSnapshot(
-    tickers,
+    watchlist,
     data,
     alerts,
     date,
