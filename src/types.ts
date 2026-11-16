@@ -30,6 +30,7 @@ export interface StockAlert {
 
 export interface Env {
   WTRACK_KV: KVNamespace;
+  ASSETS: Fetcher;
   ALPACA_API_KEY: string;
   ALPACA_API_SECRET_KEY: string;
   WEBHOOK_URL: string;

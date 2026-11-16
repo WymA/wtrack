@@ -26,6 +26,30 @@ interface ScanResult {
   skipped: Array<{ ticker: string; reason: string }>;
 }
 
+interface TickerSnapshot {
+  ticker: string;
+  asOfDate: string | null;
+  close: number | null;
+  stopLoss: number | null;
+  ema20: number | null;
+  ema50: number | null;
+  ema100: number | null;
+  ema200: number | null;
+  historyBars: number;
+  sufficientHistory: boolean;
+  signals: SignalType[];
+}
+
+interface DashboardSnapshot {
+  scannedAt: string;
+  sessionDate: string;
+  status: ScanResult["status"];
+  marketRegime: ScanResult["marketRegime"];
+  tickers: TickerSnapshot[];
+}
+
+const DASHBOARD_SNAPSHOT_KEY = "latest-scan";
+
 function jsonResponse(value: unknown, status = 200): Response {
   return Response.json(value, {
     status,
@@ -56,63 +80,17 @@ async function loadTickerList(env: Env, key: "watchlist" | "holdings"): Promise<
   return normalizeTickerList(parsed);
 }
 
-async function saveTickerList(
-  request: Request,
-  env: Env,
-  key: "watchlist" | "holdings"
-): Promise<Response> {
-  const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > 16_384) return jsonResponse({ error: "Request body is too large." }, 413);
-  const body = await request.text();
-  if (body.length > 16_384) return jsonResponse({ error: "Request body is too large." }, 413);
-  let payload: unknown;
-  try {
-    payload = JSON.parse(body) as unknown;
-  } catch {
-    return jsonResponse({ error: "Request body must be valid JSON." }, 400);
-  }
-  if (
-    typeof payload !== "object" || payload === null ||
-    !("tickers" in payload)
-  ) {
-    return jsonResponse({ error: 'Request body must have a "tickers" array.' }, 400);
-  }
-
-  let tickers: string[];
-  try {
-    tickers = normalizeTickerList(payload.tickers);
-  } catch (error) {
-    if (error instanceof TypeError) {
-      return jsonResponse({ error: error.message }, 400);
-    }
-    throw error;
-  }
-  const otherKey = key === "watchlist" ? "holdings" : "watchlist";
-  const otherTickers = await loadTickerList(env, otherKey);
-  if (new Set([...tickers, ...otherTickers]).size > MAX_TRACKED_TICKERS) {
-    return jsonResponse({
-      error: `The combined watchlist and holdings cannot exceed ${MAX_TRACKED_TICKERS} unique tickers.`
-    }, 400);
-  }
-  await env.WTRACK_KV.put(key, JSON.stringify(tickers));
-  return jsonResponse({ [key]: tickers });
-}
-
 async function handleTickerList(
-  request: Request,
   env: Env,
   key: "watchlist" | "holdings"
 ): Promise<Response> {
-  if (request.method === "GET") {
-    return jsonResponse({ [key]: await loadTickerList(env, key) });
+  const tickers = await loadTickerList(env, key);
+  if (key === "watchlist") {
+    const storedSnapshot = await env.WTRACK_KV.get(DASHBOARD_SNAPSHOT_KEY);
+    const snapshot: unknown = storedSnapshot === null ? null : JSON.parse(storedSnapshot);
+    return jsonResponse({ watchlist: tickers, snapshot });
   }
-  if (request.method === "POST") {
-    return saveTickerList(request, env, key);
-  }
-  return jsonResponse(
-    { error: "Method not allowed." },
-    405
-  );
+  return jsonResponse({ holdings: tickers });
 }
 
 function currentNewYorkDate(date: Date): string {
@@ -175,6 +153,72 @@ function createAlert(
   };
 }
 
+function createTickerSnapshot(
+  ticker: string,
+  bars: readonly Bar[],
+  signals: SignalType[]
+): TickerSnapshot {
+  const index = bars.length - 1;
+  const latest = bars[index];
+  if (latest === undefined) {
+    return {
+      ticker,
+      asOfDate: null,
+      close: null,
+      stopLoss: null,
+      ema20: null,
+      ema50: null,
+      ema100: null,
+      ema200: null,
+      historyBars: 0,
+      sufficientHistory: false,
+      signals
+    };
+  }
+
+  const indicators = calculateIndicators(bars);
+  const recentBars = bars.slice(-5);
+  return {
+    ticker,
+    asOfDate: latest.timestamp.slice(0, 10),
+    close: latest.close,
+    stopLoss: recentBars.length > 0 ? Math.min(...recentBars.map((bar) => bar.low)) : null,
+    ema20: indicators.ema20[index] ?? null,
+    ema50: indicators.ema50[index] ?? null,
+    ema100: indicators.ema100[index] ?? null,
+    ema200: indicators.ema200[index] ?? null,
+    historyBars: bars.length,
+    sufficientHistory: bars.length >= REQUIRED_DAILY_BARS,
+    signals
+  };
+}
+
+function createDashboardSnapshot(
+  tickers: readonly string[],
+  data: Record<string, Bar[]>,
+  alerts: readonly StockAlert[],
+  date: string,
+  status: ScanResult["status"],
+  marketRegime: ScanResult["marketRegime"]
+): DashboardSnapshot {
+  const signalsByTicker = new Map<string, SignalType[]>();
+  for (const alert of alerts) {
+    const signals = signalsByTicker.get(alert.ticker) ?? [];
+    signals.push(alert.type);
+    signalsByTicker.set(alert.ticker, signals);
+  }
+
+  return {
+    scannedAt: new Date().toISOString(),
+    sessionDate: date,
+    status,
+    marketRegime,
+    tickers: tickers.map((ticker) =>
+      createTickerSnapshot(ticker, data[ticker] ?? [], signalsByTicker.get(ticker) ?? [])
+    )
+  };
+}
+
 async function runScan(env: Env): Promise<ScanResult> {
   const [watchlist, holdings] = await Promise.all([
     loadTickerList(env, "watchlist"),
@@ -205,6 +249,15 @@ async function runScan(env: Env): Promise<ScanResult> {
   const skipped: ScanResult["skipped"] = [];
 
   if (!latestSpyBar?.timestamp.startsWith(date)) {
+    const snapshot = createDashboardSnapshot(
+      tickers,
+      data,
+      [],
+      date,
+      "no-current-session",
+      marketRegime
+    );
+    await env.WTRACK_KV.put(DASHBOARD_SNAPSHOT_KEY, JSON.stringify(snapshot));
     return {
       date,
       status: "no-current-session",
@@ -244,13 +297,34 @@ async function runScan(env: Env): Promise<ScanResult> {
     }
   }
 
+  const snapshot = createDashboardSnapshot(
+    tickers,
+    data,
+    alerts,
+    date,
+    "completed",
+    marketRegime
+  );
+  await env.WTRACK_KV.put(DASHBOARD_SNAPSHOT_KEY, JSON.stringify(snapshot));
   const notified = await sendNewAlerts(alerts, date, env);
   return { date, status: "completed", marketRegime, alerts, notified, skipped };
 }
 
+function isAfterRegularMarketClose(date: Date): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const hour = parts.find((part) => part.type === "hour")?.value;
+  const minute = parts.find((part) => part.type === "minute")?.value;
+  return hour === "16" && minute === "30";
+}
+
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  if (url.pathname === "/" && request.method === "GET") {
+  if (url.pathname === "/ping" && request.method === "GET") {
     return jsonResponse({ name: "wtrack", status: "ok" });
   }
   if (url.pathname === "/scan") {
@@ -259,9 +333,17 @@ async function route(request: Request, env: Env): Promise<Response> {
     }
     return jsonResponse(await runScan(env));
   }
-  if (url.pathname === "/holdings") return handleTickerList(request, env, "holdings");
-  if (url.pathname === "/watchlist") return handleTickerList(request, env, "watchlist");
-  return jsonResponse({ error: "Not Found." }, 404);
+  if (url.pathname === "/") {
+    return env.ASSETS.fetch(request);
+  }
+  if (url.pathname === "/holdings" || url.pathname === "/watchlist") {
+    if (request.method !== "GET") {
+      return jsonResponse({ error: "Method not allowed." }, 405);
+    }
+    const key = url.pathname === "/holdings" ? "holdings" : "watchlist";
+    return handleTickerList(env, key);
+  }
+  return env.ASSETS.fetch(request);
 }
 
 export default {
@@ -274,7 +356,13 @@ export default {
     }
   },
 
-  scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): void {
+  scheduled(controller: ScheduledController, env: Env, context: ExecutionContext): void {
+    if (!isAfterRegularMarketClose(new Date(controller.scheduledTime))) {
+      console.info("Skipping cron outside the regular-market close window.", {
+        cron: controller.cron
+      });
+      return;
+    }
     context.waitUntil(
       runScan(env)
         .then((result) => {

@@ -2,6 +2,8 @@
 
 A TypeScript Cloudflare Worker that scans a configured US-stock watchlist for long-only stacked EMA setups, checks exits for held positions, and sends alerts to Discord-compatible webhooks or Telegram. It sends alerts only and never places trades. Signals are informational, not investment advice.
 
+The root URL serves a static Bootstrap dashboard, using the default light theme with a light/dark mode toggle. It shows the latest saved close, EMAs, five-day low, scan status, and entry/exit signals.
+
 ## Requirements
 
 - Node.js and pnpm
@@ -32,15 +34,14 @@ For local development, copy `.dev.vars.example` to `.dev.vars` and fill in the c
 pnpm dev
 ```
 
-Set the watchlist and holdings locally through the HTTP endpoints. The request body replaces the existing list:
+Initialize the local watchlist and holdings in the local KV store:
 
-```powershell
-$body = @{ tickers = @("AAPL", "MSFT", "NVDA") } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/watchlist `
-  -ContentType "application/json" -Body $body
+```sh
+pnpm exec wrangler kv key put watchlist '["AAPL","MSFT","NVDA"]' --binding WTRACK_KV --local
+pnpm exec wrangler kv key put holdings '[]' --binding WTRACK_KV --local
 ```
 
-Use `/holdings` in place of `/watchlist` to manage held positions.
+The HTTP endpoints are read-only. Update the lists with Wrangler KV commands.
 
 ## Deploy
 
@@ -56,10 +57,11 @@ For Telegram, also set `TELEGRAM_CHAT_ID`. For Discord, set `WEBHOOK_URL` to the
 
 ```sh
 pnpm exec wrangler kv key put watchlist '["AAPL","MSFT","NVDA"]' --binding WTRACK_KV --remote
+pnpm exec wrangler kv key put holdings '[]' --binding WTRACK_KV --remote
 pnpm deploy
 ```
 
-The configured schedule runs weekdays at `21:30 UTC`. This is a fixed UTC time; the US market close shifts with daylight saving time. The scanner skips a run if SPY has no bar for the current New York date, such as on a market holiday.
+The configured cron triggers run at `20:30` and `21:30 UTC` on weekdays. The Worker runs the scan only at `16:30 America/New_York` (30 minutes after the regular US market close), so the active trigger adjusts for daylight saving time. It skips scans without a current-session SPY bar, such as on a market holiday. Early-close sessions are not separately scheduled.
 
 ## Strategy
 
@@ -67,14 +69,15 @@ See [strategy-v1.md](./strategy-v1.md) for the complete, versioned strategy and 
 
 ## HTTP API
 
-No endpoint currently requires authentication. Do not expose this Worker publicly until you add an access-control mechanism; anyone who can reach it can trigger scans and update the watchlist or holdings.
+No endpoint currently requires authentication. Anyone who can reach the Worker can trigger scans and read the watchlist or holdings. Do not expose it publicly until you add an access-control mechanism.
 
-- `GET /scan` — manually run a scan and return its results.
-- `GET /watchlist` / `POST /watchlist` — read or replace the watchlist.
-- `GET /holdings` / `POST /holdings` — read or replace held tickers.
-- `GET /` — health response.
+- `GET /` — static dashboard.
+- `GET /ping` — health check.
+- `GET /watchlist` — read the watchlist and latest saved scan snapshot for the dashboard.
+- `GET /holdings` — read held tickers.
+- `GET /scan` — manual scan endpoint, intentionally not linked from the dashboard.
 
-POST requests use `{"tickers":["AAPL","MSFT"]}`. The combined watchlist and holdings limit is 200 unique symbols.
+The combined watchlist and holdings limit is 200 unique symbols.
 
 ## Commands
 

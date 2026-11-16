@@ -1,0 +1,114 @@
+:root {
+  --entry-bg: #fff0f0;
+  --entry-border: #b42318;
+  --entry-badge-bg: #fbd4d4;
+  --entry-badge-color: #861b13;
+  --exit-bg: #eaf8ef;
+  --exit-border: #16803c;
+  --exit-badge-bg: #ccebd5;
+  --exit-badge-color: #14532d;
+}
+
+[data-bs-theme="dark"] {
+  --entry-bg: #442126;
+  --entry-border: #ef7c84;
+  --entry-badge-bg: #682d35;
+  --entry-badge-color: #ffd9dc;
+  --exit-bg: #173a28;
+  --exit-border: #70d69b;
+  --exit-badge-bg: #21573a;
+  --exit-badge-color: #d3f6df;
+}
+
+.dashboard {
+  margin: 0 auto;
+  max-width: 1440px;
+  padding-bottom: 2rem;
+  padding-top: 1.5rem;
+}
+
+.status-dot {
+  background: #9a3412;
+  border-radius: 50%;
+  display: inline-block;
+  height: 0.65rem;
+  width: 0.65rem;
+}
+
+.status-dot.connected {
+  background: #16803c;
+}
+
+.legend-swatch {
+  border-radius: 0.2rem;
+  display: inline-block;
+  height: 0.85rem;
+  width: 0.85rem;
+}
+
+.entry-swatch {
+  background: var(--entry-bg);
+  border: 1px solid var(--entry-border);
+}
+
+.exit-swatch {
+  background: var(--exit-bg);
+  border: 1px solid var(--exit-border);
+}
+
+.data-message {
+  min-height: 1.5rem;
+}
+
+.ticker-table {
+  min-width: 980px;
+}
+
+.ticker-table th,
+.ticker-table td {
+  white-space: nowrap;
+}
+
+.ticker-table .entry-row > * {
+  background-color: var(--entry-bg);
+  background-image: none;
+  border-bottom-color: var(--entry-border);
+  color: var(--bs-body-color);
+}
+
+.ticker-table .exit-row > * {
+  background-color: var(--exit-bg);
+  background-image: none;
+  border-bottom-color: var(--exit-border);
+  color: var(--bs-body-color);
+}
+
+.signal-badge {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin: 0.1rem 0.2rem 0.1rem 0;
+  padding: 0.18rem 0.5rem;
+}
+
+.entry-badge {
+  background: var(--entry-badge-bg);
+  color: var(--entry-badge-color);
+}
+
+.exit-badge {
+  background: var(--exit-badge-bg);
+  color: var(--exit-badge-color);
+}
+
+details > summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+@media (max-width: 575.98px) {
+  .dashboard {
+    padding-top: 1rem;
+  }
+}
