@@ -1,6 +1,0 @@
-ALPACA_API_KEY="replace-me"
-ALPACA_API_SECRET_KEY="replace-me"
-WEBHOOK_URL="https://example.invalid/webhook"
-ADMIN_TOKEN="replace-with-a-long-random-token"
-# Required only when WEBHOOK_URL points to Telegram's sendMessage endpoint.
-TELEGRAM_CHAT_ID="replace-me"

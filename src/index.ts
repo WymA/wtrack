@@ -267,7 +267,7 @@ async function runScan(env: Env): Promise<ScanResult> {
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/" && request.method === "GET") {
-    return jsonResponse({ name: "stock-tracker", status: "ok" });
+    return jsonResponse({ name: "wtrack", status: "ok" });
   }
   if (url.pathname === "/scan") {
     const unauthorized = authorize(request, env);
