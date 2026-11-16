@@ -74,9 +74,19 @@ No endpoint currently requires authentication. Anyone who can reach the Worker c
 - `GET /` — static dashboard.
 - `GET /ping` — health check.
 - `GET /watchlist` — read the watchlist and latest saved scan snapshot for the dashboard.
-- `GET /scan` — manual scan endpoint, intentionally not linked from the dashboard.
+- `GET /scan` — run the scan immediately; this does not execute the scheduled handler or update its last-run record.
 
 The watchlist supports up to 200 unique symbols. Each scan checks all listed symbols for exit signals, regardless of the SPY entry filter, and checks for entry setups when the filter passes.
+
+### Run a scheduled event locally
+
+Start Wrangler with `pnpm exec wrangler dev`, then invoke the local scheduled-event endpoint:
+
+```sh
+curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=30+21+*+*+1-5&time=<epoch-milliseconds>"
+```
+
+Set `time` to a weekday timestamp at 16:30 in `America/New_York` so the Worker passes its scheduled-time gate. For an immediate scan on a deployed Worker, request `https://<worker-domain>/scan`; this runs the scan but does not record a scheduled event. The API has no authentication, so anyone who can reach the Worker can trigger it.
 
 ## Commands
 
