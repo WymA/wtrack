@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="WTrack administrative actions">
+    <title>WTrack — Admin</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <script>
+      const preferredTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.setAttribute("data-bs-theme", preferredTheme);
+    </script>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.9/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-yEPZ7jP9S0QKiUQ0m3jjsO4ProIW7wvR9gXkI7JOGa2XVsw53Yke2bsdkBbjmmiX"
+      crossorigin="anonymous">
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/admin.js"></script>
+  </head>
+  <body>
+    <main class="container py-4">
+      <header class="d-flex align-items-center justify-content-between gap-3 border-bottom pb-3 mb-4">
+        <div>
+          <p class="text-uppercase small fw-semibold text-body-secondary mb-1">WTrack</p>
+          <h1 class="h2 mb-0">Admin</h1>
+        </div>
+        <a class="btn btn-outline-secondary" href="/">Dashboard</a>
+      </header>
+
+      <section class="card" aria-labelledby="actions-title">
+        <div class="card-body">
+          <h2 id="actions-title" class="h4">Worker actions</h2>
+          <p class="text-body-secondary">Run a scan or inspect the Worker status and watchlist.</p>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <button class="btn btn-primary" type="button" data-action="scan">Scan</button>
+            <button class="btn btn-outline-primary" type="button" data-action="ping">Ping</button>
+            <button class="btn btn-outline-primary" type="button" data-action="watchlist">Watchlist</button>
+          </div>
+          <p id="action-status" class="text-body-secondary" role="status">Choose an action.</p>
+          <pre id="action-result" class="bg-body-tertiary border rounded p-3 mb-0" aria-live="polite">Results will appear here.</pre>
+        </div>
+      </section>
+
+      <footer class="text-body-secondary small mt-3">
+        These actions are not access-controlled. Anyone who can reach this page can run them.
+      </footer>
+    </main>
+  </body>
+</html>

@@ -14,7 +14,10 @@ function createEnv(values: Map<string, string>) {
       values.delete(key);
     }
   };
-  const assetsFetch = vi.fn(async () => new Response("Not found", { status: 404 }));
+  const assetsFetch = vi.fn(async (request: Request) => {
+    if (new URL(request.url).pathname === "/admin.html") return new Response("Admin page");
+    return new Response("Not found", { status: 404 });
+  });
   const env = {
     WTRACK_KV: kv,
     ASSETS: { fetch: assetsFetch }
@@ -51,6 +54,16 @@ describe("watchlist endpoint", () => {
 
     expect(response.status).toBe(404);
     expect(assetsFetch).toHaveBeenCalledOnce();
+  });
+
+  it("serves the admin page at /admin", async () => {
+    const { env } = createEnv(new Map());
+    const request = new Request("https://wtrack.example/admin");
+
+    const response = await worker.fetch(request, env);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("Admin page");
   });
 
   it("records scheduled failures and exposes the latest run record", async () => {

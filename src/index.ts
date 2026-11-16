@@ -329,6 +329,12 @@ async function route(request: Request, env: Env): Promise<Response> {
     }
     return jsonResponse(await runScan(env));
   }
+  if (url.pathname === "/admin" || url.pathname === "/admin/") {
+    if (request.method !== "GET") {
+      return jsonResponse({ error: "Method not allowed." }, 405);
+    }
+    return env.ASSETS.fetch(new Request(new URL("/admin.html", url), request));
+  }
   if (url.pathname === "/") {
     return env.ASSETS.fetch(request);
   }

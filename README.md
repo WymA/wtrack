@@ -67,14 +67,9 @@ The configured cron triggers run at `21:30 UTC` on weekdays. The Worker runs the
 
 See [strategy-v1.md](./strategy-v1.md) for the complete, versioned strategy and alert criteria.
 
-## HTTP API
+## Admin tools
 
-No endpoint currently requires authentication. Anyone who can reach the Worker can trigger scans and read the watchlist. Do not expose it publicly until you add an access-control mechanism.
-
-- `GET /` — static dashboard.
-- `GET /ping` — health check.
-- `GET /watchlist` — read the watchlist and latest saved scan snapshot for the dashboard.
-- `GET /scan` — run the scan immediately; this does not execute the scheduled handler or update its last-run record.
+The `/admin` page provides buttons to run a scan, check Worker health, and read the watchlist. The page and its actions have no authentication; anyone who can reach the Worker can use them. Do not expose it publicly until you add an access-control mechanism.
 
 The watchlist supports up to 200 unique symbols. Each scan checks all listed symbols for exit signals, regardless of the SPY entry filter, and checks for entry setups when the filter passes.
 
@@ -86,7 +81,7 @@ Start Wrangler with `pnpm exec wrangler dev`, then invoke the local scheduled-ev
 curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=30+21+*+*+1-5&time=<epoch-milliseconds>"
 ```
 
-Set `time` to a weekday timestamp at 16:30 in `America/New_York` so the Worker passes its scheduled-time gate. For an immediate scan on a deployed Worker, request `https://<worker-domain>/scan`; this runs the scan but does not record a scheduled event. The API has no authentication, so anyone who can reach the Worker can trigger it.
+Set `time` to a weekday timestamp at 16:30 in `America/New_York` so the Worker passes its scheduled-time gate. For an immediate scan on a deployed Worker, open the Admin page and select **Scan**; this runs the scan but does not record a scheduled event.
 
 ## Commands
 
