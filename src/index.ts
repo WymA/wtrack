@@ -50,6 +50,7 @@ interface DashboardSnapshot {
 }
 
 const DASHBOARD_SNAPSHOT_KEY = "latest-scan";
+const SCHEDULED_RUN_KEY = "last-scheduled-run";
 
 function jsonResponse(value: unknown, status = 200): Response {
   return Response.json(value, {
@@ -97,12 +98,14 @@ async function loadTickerList(env: Env): Promise<string[]> {
 }
 
 async function handleTickerList(env: Env): Promise<Response> {
-  const [tickers, storedSnapshot] = await Promise.all([
+  const [tickers, storedSnapshot, storedScheduledRun] = await Promise.all([
     loadTickerList(env),
-    env.WTRACK_KV.get(DASHBOARD_SNAPSHOT_KEY)
+    env.WTRACK_KV.get(DASHBOARD_SNAPSHOT_KEY),
+    env.WTRACK_KV.get(SCHEDULED_RUN_KEY)
   ]);
   const snapshot: unknown = storedSnapshot === null ? null : JSON.parse(storedSnapshot);
-  return jsonResponse({ watchlist: tickers, snapshot });
+  const lastScheduledRun: unknown = storedScheduledRun === null ? null : JSON.parse(storedScheduledRun);
+  return jsonResponse({ watchlist: tickers, snapshot, lastScheduledRun });
 }
 
 function currentNewYorkDate(date: Date): string {
@@ -355,21 +358,38 @@ export default {
       });
       return;
     }
-    context.waitUntil(
-      runScan(env)
-        .then((result) => {
-          console.info("Scheduled scan completed:", {
-            date: result.date,
-            status: result.status,
-            alerts: result.alerts.length,
-            notified: result.notified.length,
-            skipped: result.skipped.length
-          });
-        })
-        .catch((error: unknown) => {
-          console.error("Scheduled scan failed:", error);
-          throw error;
-        })
-    );
+    context.waitUntil((async () => {
+      let result: ScanResult;
+      try {
+        result = await runScan(env);
+      } catch (error) {
+        try {
+          await env.WTRACK_KV.put(SCHEDULED_RUN_KEY, JSON.stringify({
+            completedAt: new Date().toISOString(),
+            success: false
+          }));
+        } catch (recordError) {
+          console.error("Failed to save scheduled scan failure record:", recordError);
+        }
+        console.error("Scheduled scan failed:", error);
+        throw error;
+      }
+
+      const record = {
+        completedAt: new Date().toISOString(),
+        success: true,
+        status: result.status,
+        alerts: result.alerts.length,
+        notified: result.notified.length
+      };
+      await env.WTRACK_KV.put(SCHEDULED_RUN_KEY, JSON.stringify(record));
+      console.info("Scheduled scan completed:", {
+        date: result.date,
+        status: result.status,
+        alerts: result.alerts.length,
+        notified: result.notified.length,
+        skipped: result.skipped.length
+      });
+    })());
   }
 } satisfies ExportedHandler<Env>;

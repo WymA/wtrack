@@ -6,6 +6,9 @@ const refreshButton = document.querySelector("#refresh-button");
 const themeToggle = document.querySelector("#theme-toggle");
 const systemThemeButton = document.querySelector("#system-theme-button");
 const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+const scheduledRunStatusElement = document.querySelector("#scheduled-run-status");
+const scheduledRunTimeElement = document.querySelector("#scheduled-run-time");
+const scheduledRunDetailElement = document.querySelector("#scheduled-run-detail");
 let followsSystemTheme = true;
 
 const money = new Intl.NumberFormat(undefined, {
@@ -80,9 +83,40 @@ function renderTickers(tickers) {
   document.querySelector("#ticker-count").textContent = String(tickers.length);
 }
 
+function renderScheduledRun(record) {
+  scheduledRunStatusElement.className = "fs-5";
+  scheduledRunDetailElement.textContent = "";
+
+  if (!record || typeof record.success !== "boolean" || typeof record.completedAt !== "string") {
+    scheduledRunStatusElement.textContent = "No record";
+    scheduledRunStatusElement.classList.add("text-body-secondary");
+    scheduledRunTimeElement.textContent = "No scheduled run recorded yet";
+    return;
+  }
+
+  scheduledRunStatusElement.textContent = record.success ? "Successful" : "Failed";
+  scheduledRunStatusElement.classList.add(record.success ? "text-success" : "text-danger");
+  const completedAt = new Date(record.completedAt);
+  scheduledRunTimeElement.textContent = Number.isFinite(completedAt.getTime())
+    ? `Finished ${completedAt.toLocaleString()}`
+    : "Completion time unavailable";
+
+  if (!record.success) {
+    scheduledRunDetailElement.textContent = "Check Worker logs for details.";
+  } else if (record.status === "no-current-session") {
+    scheduledRunDetailElement.textContent = "No current market session.";
+  } else {
+    const alerts = Number.isInteger(record.alerts) ? record.alerts : 0;
+    const notified = Number.isInteger(record.notified) ? record.notified : 0;
+    scheduledRunDetailElement.textContent =
+      `${alerts} alert${alerts === 1 ? "" : "s"} · ${notified} notification${notified === 1 ? "" : "s"}`;
+  }
+}
+
 function renderSnapshot(payload) {
   const snapshot = payload.snapshot;
   const tickers = Array.isArray(snapshot?.tickers) ? snapshot.tickers : [];
+  renderScheduledRun(payload.lastScheduledRun);
   renderTickers(tickers);
 
   if (!snapshot) {
@@ -112,7 +146,7 @@ function renderSnapshot(payload) {
     `Saved ${new Date(snapshot.scannedAt).toLocaleString()}`;
   messageElement.textContent = tickers.length
     ? `${tickers.length} tracked ticker${tickers.length === 1 ? "" : "s"} in the latest snapshot.`
-    : "No watchlist or holding tickers are configured.";
+    : "No watchlist tickers are configured.";
 }
 
 async function loadDashboard() {

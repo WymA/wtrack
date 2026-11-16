@@ -2,7 +2,7 @@
 
 A TypeScript Cloudflare Worker that scans a configured US-stock watchlist for long-only stacked EMA setups and exit signals, then sends alerts to Discord-compatible webhooks or Telegram. It sends alerts only and never places trades. Signals are informational, not investment advice.
 
-The root URL serves a static Bootstrap dashboard that follows the system light/dark preference by default, with a manual theme toggle. It shows the latest saved close, EMAs, five-day low, scan status, and entry/exit signals.
+The root URL serves a static Bootstrap dashboard that follows the system light/dark preference by default, with a manual theme toggle. It shows the latest saved close, EMAs, five-day low, scan status, entry/exit signals, and the last scheduled run result.
 
 ## Requirements
 

@@ -36,7 +36,8 @@ describe("watchlist endpoint", () => {
 
     expect(await response.json()).toEqual({
       watchlist: ["AAPL", "MSFT", "NVDA"],
-      snapshot: null
+      snapshot: null,
+      lastScheduledRun: null
     });
     expect(values.get("watchlist")).toBe('["AAPL","MSFT","NVDA"]');
     expect(values.has("holdings")).toBe(false);
@@ -50,5 +51,41 @@ describe("watchlist endpoint", () => {
 
     expect(response.status).toBe(404);
     expect(assetsFetch).toHaveBeenCalledOnce();
+  });
+
+  it("records scheduled failures and exposes the latest run record", async () => {
+    const values = new Map<string, string>();
+    const { env } = createEnv(values);
+    const scheduledWork: Promise<unknown>[] = [];
+    const context = {
+      waitUntil(promise: Promise<unknown>) {
+        scheduledWork.push(promise);
+      }
+    } as unknown as ExecutionContext;
+    const controller = {
+      scheduledTime: Date.parse("2026-11-16T21:30:00Z"),
+      cron: "30 21 * * 1-5"
+    } as ScheduledController;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      worker.scheduled(controller, env, context);
+      const task = scheduledWork[0];
+      if (!task) throw new Error("The scheduled task was not registered.");
+      await expect(task).rejects.toThrow("ALPACA_API_KEY and ALPACA_API_SECRET_KEY must be configured.");
+
+      const storedRecord = values.get("last-scheduled-run");
+      expect(storedRecord).toBeDefined();
+      expect(JSON.parse(storedRecord ?? "")).toEqual({
+        completedAt: expect.any(String),
+        success: false
+      });
+
+      const response = await worker.fetch(new Request("https://wtrack.example/watchlist"), env);
+      const payload = await response.json() as { lastScheduledRun: unknown };
+      expect(payload.lastScheduledRun).toEqual(JSON.parse(storedRecord ?? ""));
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
