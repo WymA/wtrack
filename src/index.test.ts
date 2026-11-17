@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import worker from "./index";
-import type { Env } from "./types";
+import type { Env, StockAlert } from "./types";
 
-function createEnv(values: Map<string, string>) {
+function createEnv(values: Map<string, string>, watchlist: unknown = []) {
+  let enabled = false;
   const kv = {
-    async get(key: string) {
+    get: vi.fn(async (key: string) => {
       return values.get(key) ?? null;
-    },
+    }),
     async put(key: string, value: string) {
       values.set(key, value);
     },
@@ -16,20 +17,35 @@ function createEnv(values: Map<string, string>) {
   };
   const assetsFetch = vi.fn(async (request: Request) => {
     if (new URL(request.url).pathname === "/admin") return new Response("Admin page");
+    if (new URL(request.url).pathname === "/watchlist.json") return Response.json({ watchlist });
     return new Response("Not found", { status: 404 });
   });
   const env = {
     WTRACK_KV: kv,
-    ASSETS: { fetch: assetsFetch }
+    ASSETS: { fetch: assetsFetch },
+    PAPER_TRADING: {
+      idFromName: () => ({}),
+      get: () => ({
+        async fetch(url: string, init?: RequestInit) {
+          if (url.endsWith("/status")) return Response.json({ enabled });
+          if (url.endsWith("/switch")) {
+            const value = JSON.parse(String(init?.body)) as { enabled: boolean };
+            enabled = value.enabled;
+            return Response.json({ enabled });
+          }
+          throw new Error(`Unexpected coordinator request ${url}`);
+        }
+      })
+    }
   } as unknown as Env;
 
-  return { env, assetsFetch };
+  return { env, assetsFetch, kv };
 }
 
 describe("admin actions", () => {
   it("completes scans with signals when notifications are not configured", async () => {
-    const values = new Map([["watchlist", '["AAPL"]']]);
-    const { env } = createEnv(values);
+    const values = new Map<string, string>();
+    const { env } = createEnv(values, ["AAPL"]);
     env.ALPACA_API_KEY = "test-key";
     env.ALPACA_API_SECRET_KEY = "test-secret";
     const now = new Date("2026-11-16T21:30:00Z");
@@ -69,8 +85,8 @@ describe("admin actions", () => {
   ])("stores daily changes for $watchlist with previous close $previous", async ({
     watchlist, expectedSymbols, previous, change, percent
   }) => {
-    const values = new Map([["watchlist", JSON.stringify(watchlist)]]);
-    const { env } = createEnv(values);
+    const values = new Map<string, string>();
+    const { env } = createEnv(values, watchlist);
     env.ALPACA_API_KEY = "test-key";
     env.ALPACA_API_SECRET_KEY = "test-secret";
     const now = new Date("2026-11-16T21:30:00Z");
@@ -129,23 +145,51 @@ describe("admin actions", () => {
     }
   });
 
-  it("merges and removes the legacy holdings list", async () => {
+  it("reads and normalizes the asset watchlist without modifying old KV lists", async () => {
     const values = new Map([
-      ["watchlist", '["aapl","MSFT"]'],
-      ["holdings", '["MSFT","NVDA"]']
+      ["watchlist", '["OLD"]'],
+      ["holdings", '["LEGACY"]']
     ]);
-    const { env } = createEnv(values);
+    const { env, kv } = createEnv(values, ["aapl", " MSFT ", "AAPL"]);
     const request = new Request("https://wtrack.example/admin/watchlist");
 
     const response = await worker.fetch(request, env);
 
     expect(await response.json()).toEqual({
-      watchlist: ["AAPL", "MSFT", "NVDA"],
+      watchlist: ["AAPL", "MSFT"],
       snapshot: null,
-      lastScheduledRun: null
+      lastScheduledRun: null,
+      paperTradingEnabled: false
     });
-    expect(values.get("watchlist")).toBe('["AAPL","MSFT","NVDA"]');
-    expect(values.has("holdings")).toBe(false);
+    expect(values.get("watchlist")).toBe('["OLD"]');
+    expect(values.get("holdings")).toBe('["LEGACY"]');
+    expect(kv.get.mock.calls.map(([key]) => key)).not.toContain("watchlist");
+    expect(kv.get.mock.calls.map(([key]) => key)).not.toContain("holdings");
+  });
+
+  it("reports invalid or missing watchlist assets instead of using KV", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { env, assetsFetch } = createEnv(new Map([["watchlist", '["OLD"]']]), ["INVALID SYMBOL"]);
+      const request = new Request("https://wtrack.example/admin/watchlist");
+      expect((await worker.fetch(request, env)).status).toBe(500);
+      expect(errorSpy).toHaveBeenCalledWith("Request failed:", expect.any(TypeError));
+      assetsFetch.mockResolvedValueOnce(new Response("Not found", { status: 404 }));
+      expect((await worker.fetch(request, env)).status).toBe(500);
+      expect(errorSpy).toHaveBeenCalledWith("Request failed:", expect.objectContaining({
+        message: "Unable to load watchlist.json: asset returned status 404."
+      }));
+      assetsFetch.mockResolvedValueOnce(Response.json({ wrong: [] }));
+      expect((await worker.fetch(request, env)).status).toBe(500);
+      expect(errorSpy).toHaveBeenCalledWith("Request failed:", expect.objectContaining({
+        message: "watchlist.json must contain a watchlist array."
+      }));
+      assetsFetch.mockResolvedValueOnce(new Response("{"));
+      expect((await worker.fetch(request, env)).status).toBe(500);
+      expect(errorSpy).toHaveBeenCalledWith("Request failed:", expect.any(SyntaxError));
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it("does not expose the old standalone action routes", async () => {
@@ -166,6 +210,35 @@ describe("admin actions", () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("Admin page");
+  });
+
+  it("rejects cross-origin paper switch requests", async () => {
+    const { env } = createEnv(new Map());
+    const request = (origin: string) => new Request("https://wtrack.example/admin/paper-trading", {
+      method: "POST",
+      headers: { origin, "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true })
+    });
+    const crossOrigin = await worker.fetch(request("https://other.example"), env);
+    expect(crossOrigin.status).toBe(403);
+  });
+
+  it("persists paper switch changes and exposes the current state", async () => {
+    const { env } = createEnv(new Map());
+    for (const enabled of [true, false]) {
+      const response = await worker.fetch(new Request("https://wtrack.example/admin/paper-trading", {
+        method: "POST",
+        headers: {
+          origin: "https://wtrack.example",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ enabled })
+      }), env);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ enabled });
+      const state = await worker.fetch(new Request("https://wtrack.example/admin/watchlist"), env);
+      expect(await state.json()).toMatchObject({ paperTradingEnabled: enabled });
+    }
   });
 
   it("records scheduled failures and exposes the latest run record", async () => {
@@ -201,6 +274,64 @@ describe("admin actions", () => {
       expect(payload.lastScheduledRun).toEqual(JSON.parse(storedRecord ?? ""));
     } finally {
       errorSpy.mockRestore();
+    }
+  });
+
+  it("uses the last completed session for the morning scheduled paper scan", async () => {
+    const values = new Map<string, string>();
+    const { env } = createEnv(values, ["AAPL"]);
+    env.ALPACA_API_KEY = "test-key";
+    env.ALPACA_API_SECRET_KEY = "test-secret";
+    const coordinator = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/status")) return Response.json({ enabled: true });
+      if (url.endsWith("/symbols")) return Response.json({ symbols: [] });
+      if (url.endsWith("/execute")) return Response.json({ submitted: 0 });
+      throw new Error(`Unexpected coordinator request ${url} ${init?.method}`);
+    });
+    env.PAPER_TRADING = {
+      idFromName: () => ({}),
+      get: () => ({ fetch: coordinator })
+    } as unknown as DurableObjectNamespace;
+    const latest = new Date("2026-11-13T21:00:00Z");
+    const bars = Array.from({ length: 300 }, (_, index) => ({
+      t: new Date(latest.getTime() - (299 - index) * 86_400_000).toISOString(),
+      o: 100, h: 101, l: 90, c: index >= 298 ? 90 : 100, v: 1_000
+    }));
+    const marketFetch = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(input.toString());
+      if (url.pathname === "/v2/clock") return Response.json({ is_open: true });
+      if (url.pathname === "/v2/calendar") {
+        return Response.json([{ date: "2026-11-13" }, { date: "2026-11-16" }]);
+      }
+      if (url.pathname === "/v2/stocks/bars") {
+        return Response.json({ bars: { SPY: bars, QQQ: bars, AAPL: bars }, next_page_token: null });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-16T15:15:00Z"));
+    vi.stubGlobal("fetch", marketFetch);
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const scheduledWork: Promise<unknown>[] = [];
+      const context = { waitUntil: (promise: Promise<unknown>) => scheduledWork.push(promise) } as unknown as ExecutionContext;
+      const controller = {
+        scheduledTime: Date.parse("2026-11-16T15:15:00Z"), cron: "15 15 * * 1-5"
+      } as ScheduledController;
+      worker.scheduled(controller, env, context);
+      await Promise.all(scheduledWork);
+      const barsRequest = marketFetch.mock.calls.map(([url]) => new URL(String(url)))
+        .find((url) => url.pathname === "/v2/stocks/bars");
+      expect(barsRequest?.searchParams.get("end")).toBe("2026-11-16T00:00:00.000Z");
+      const executeCall = coordinator.mock.calls.find(([url]) => url.endsWith("/execute"));
+      const body = JSON.parse(String(executeCall?.[1]?.body)) as { date: string; phase: string; alerts: StockAlert[] };
+      expect(body.date).toBe("2026-11-13");
+      expect(body.phase).toBe("morning");
+      expect(body.alerts.map((item) => item.type)).toEqual(["Exit Tier 2", "Exit Tier 3"]);
+    } finally {
+      info.mockRestore();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
     }
   });
 });

@@ -7,7 +7,15 @@ compatibility_date = "2025-03-01"
 # WEBHOOK_URL is optional; TELEGRAM_CHAT_ID is required when using Telegram.
 
 [triggers]
-crons = ["30 21 * * 1-5"]
+crons = ["30 20 * * 1-5", "30 21 * * 1-5", "15 14 * * 1-5", "15 15 * * 1-5"]
+
+[[durable_objects.bindings]]
+name = "PAPER_TRADING"
+class_name = "PaperTrading"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PaperTrading"]
 
 [[kv_namespaces]]
 binding = "WTRACK_KV"

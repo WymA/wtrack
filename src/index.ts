@@ -3,10 +3,11 @@ import { calculateIndicators } from "./indicators";
 import { sendNewAlerts } from "./notifications";
 import { evaluateBuySetup, evaluateExitSignals, marketRegimePasses } from "./strategy";
 import type { Bar, Env, IndicatorSeries, SignalType, StockAlert } from "./types";
+export { PaperTrading } from "./paper-trading";
 
 const MAX_TRACKED_TICKERS = 200;
 const TICKER_PATTERN = /^[A-Z][A-Z0-9.-]{0,14}$/;
-const LEGACY_HOLDINGS_KEY = "holdings";
+const WATCHLIST_ASSET_URL = "https://assets.local/watchlist.json";
 
 interface BenchmarkSummary {
   close: number;
@@ -81,36 +82,80 @@ function normalizeTickerList(value: unknown): string[] {
 }
 
 async function loadTickerList(env: Env): Promise<string[]> {
-  const [watchlistValue, legacyHoldingsValue] = await Promise.all([
-    env.WTRACK_KV.get("watchlist"),
-    env.WTRACK_KV.get(LEGACY_HOLDINGS_KEY)
-  ]);
-  const watchlist: unknown = watchlistValue === null ? [] : JSON.parse(watchlistValue);
-  const legacyHoldings: unknown = legacyHoldingsValue === null ? [] : JSON.parse(legacyHoldingsValue);
-  const tickers = [...new Set([
-    ...normalizeTickerList(watchlist),
-    ...normalizeTickerList(legacyHoldings)
-  ])];
-
-  if (tickers.length > MAX_TRACKED_TICKERS) {
-    throw new Error(`The watchlist cannot exceed ${MAX_TRACKED_TICKERS} tickers.`);
+  const response = await env.ASSETS.fetch(new Request(WATCHLIST_ASSET_URL));
+  if (!response.ok) {
+    throw new Error(`Unable to load watchlist.json: asset returned status ${response.status}.`);
   }
-  if (legacyHoldingsValue !== null) {
-    await env.WTRACK_KV.put("watchlist", JSON.stringify(tickers));
-    await env.WTRACK_KV.delete(LEGACY_HOLDINGS_KEY);
+  const value: unknown = await response.json();
+  if (typeof value !== "object" || value === null || !("watchlist" in value)) {
+    throw new TypeError("watchlist.json must contain a watchlist array.");
   }
-  return tickers;
+  return normalizeTickerList(value.watchlist);
 }
 
 async function handleTickerList(env: Env): Promise<Response> {
-  const [tickers, storedSnapshot, storedScheduledRun] = await Promise.all([
+  const [tickers, storedSnapshot, storedScheduledRun, paperTradingEnabled] = await Promise.all([
     loadTickerList(env),
     env.WTRACK_KV.get(DASHBOARD_SNAPSHOT_KEY),
-    env.WTRACK_KV.get(SCHEDULED_RUN_KEY)
+    env.WTRACK_KV.get(SCHEDULED_RUN_KEY),
+    paperTradingStatus(env)
   ]);
   const snapshot: unknown = storedSnapshot === null ? null : JSON.parse(storedSnapshot);
   const lastScheduledRun: unknown = storedScheduledRun === null ? null : JSON.parse(storedScheduledRun);
-  return jsonResponse({ watchlist: tickers, snapshot, lastScheduledRun });
+  return jsonResponse({
+    watchlist: tickers, snapshot, lastScheduledRun,
+    paperTradingEnabled
+  });
+}
+
+function paperTradingStub(env: Env): DurableObjectStub {
+  return env.PAPER_TRADING.get(env.PAPER_TRADING.idFromName("paper-strategy"));
+}
+
+async function paperTradingRequest(env: Env, path: string, init?: RequestInit): Promise<unknown> {
+  const response = await paperTradingStub(env).fetch(`https://paper.internal${path}`, init);
+  if (!response.ok) throw new Error(`Paper trading coordinator failed: ${response.status}.`);
+  return response.json();
+}
+
+async function paperTradingStatus(env: Env): Promise<boolean> {
+  const value = await paperTradingRequest(env, "/status");
+  if (typeof value !== "object" || value === null || !("enabled" in value) ||
+    typeof value.enabled !== "boolean") throw new Error("Invalid paper trading status.");
+  return value.enabled;
+}
+
+async function previousTradingSession(env: Env, today: string): Promise<string | null> {
+  if (!env.ALPACA_API_KEY || !env.ALPACA_API_SECRET_KEY) {
+    throw new Error("ALPACA_API_KEY and ALPACA_API_SECRET_KEY must be configured.");
+  }
+  const headers = {
+    "APCA-API-KEY-ID": env.ALPACA_API_KEY,
+    "APCA-API-SECRET-KEY": env.ALPACA_API_SECRET_KEY
+  };
+  const clock = await fetch("https://paper-api.alpaca.markets/v2/clock", { headers, signal: AbortSignal.timeout(15_000) });
+  if (!clock.ok) throw new Error(`Alpaca clock request failed: ${clock.status}.`);
+  const clockValue: unknown = await clock.json();
+  if (typeof clockValue !== "object" || clockValue === null ||
+    !("is_open" in clockValue) || typeof clockValue.is_open !== "boolean") {
+    throw new Error("Alpaca returned an invalid market clock.");
+  }
+  if (!clockValue.is_open) return null;
+  const start = new Date(Date.parse(`${today}T00:00:00Z`) - 14 * 86_400_000).toISOString().slice(0, 10);
+  const calendar = await fetch(`https://paper-api.alpaca.markets/v2/calendar?start=${start}&end=${today}`, {
+    headers, signal: AbortSignal.timeout(15_000)
+  });
+  if (!calendar.ok) throw new Error(`Alpaca calendar request failed: ${calendar.status}.`);
+  const days: unknown = await calendar.json();
+  if (!Array.isArray(days) || !days.every((day) => typeof day === "object" && day !== null &&
+    typeof day.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(day.date))) {
+    throw new Error("Alpaca returned an invalid market calendar.");
+  }
+  const dates: string[] = days.map((day) => day.date);
+  if (!dates.includes(today)) throw new Error("Alpaca calendar does not include today's open session.");
+  const previous = dates.filter((date) => date < today).sort().at(-1);
+  if (!previous) throw new Error("Alpaca calendar has no previous trading session.");
+  return previous;
 }
 
 function currentNewYorkDate(date: Date): string {
@@ -258,10 +303,21 @@ function createDashboardSnapshot(
   };
 }
 
-async function runScan(env: Env): Promise<ScanResult> {
+async function runScan(env: Env, phase?: "close" | "morning"): Promise<ScanResult> {
   const watchlist = await loadTickerList(env);
-  const tickersToFetch = [...new Set(["SPY", "QQQ", ...watchlist])];
-  const data = await fetchDailyBars(tickersToFetch, env);
+  const tradingEnabled = phase !== undefined && await paperTradingStatus(env);
+  const managedValue = tradingEnabled ? await paperTradingRequest(env, "/symbols") : { symbols: [] };
+  if (typeof managedValue !== "object" || managedValue === null ||
+    !("symbols" in managedValue) || !Array.isArray(managedValue.symbols) ||
+    !managedValue.symbols.every((symbol) => typeof symbol === "string" && TICKER_PATTERN.test(symbol))) {
+    throw new Error("Invalid managed paper positions.");
+  }
+  const managed: string[] = managedValue.symbols;
+  const today = currentNewYorkDate(new Date());
+  const sessionDate = phase === "morning" ? await previousTradingSession(env, today) : today;
+  const tickersToFetch = [...new Set(["SPY", "QQQ", ...watchlist, ...managed])];
+  const data = await fetchDailyBars(tickersToFetch, env,
+    phase === "morning" ? new Date(`${today}T00:00:00Z`) : new Date());
   const spyBars = data.SPY ?? [];
   if (spyBars.length < REQUIRED_DAILY_BARS) {
     throw new Error(`SPY must have at least ${REQUIRED_DAILY_BARS} daily bars.`);
@@ -272,11 +328,11 @@ async function runScan(env: Env): Promise<ScanResult> {
     passes: marketRegimePasses(spyBars, spyIndicators),
     spy: getBenchmarkSummary(spyBars, spyIndicators)
   };
-  const date = currentNewYorkDate(new Date());
+  const date = sessionDate ?? today;
   const latestSpyBar = spyBars[spyBars.length - 1];
   const skipped: ScanResult["skipped"] = [];
 
-  if (!latestSpyBar?.timestamp.startsWith(date)) {
+  if (sessionDate === null || !latestSpyBar?.timestamp.startsWith(date)) {
     const snapshot = createDashboardSnapshot(
       watchlist,
       data,
@@ -298,17 +354,18 @@ async function runScan(env: Env): Promise<ScanResult> {
 
   const alerts: StockAlert[] = [];
 
-  for (const ticker of watchlist) {
+  for (const ticker of [...new Set([...watchlist, ...managed])]) {
     const bars = data[ticker] ?? [];
-    if (bars.length < REQUIRED_DAILY_BARS) {
-      skipped.push({ ticker, reason: `Fewer than ${REQUIRED_DAILY_BARS} daily bars are available.` });
+    if (bars.length < REQUIRED_DAILY_BARS || !bars.at(-1)?.timestamp.startsWith(date)) {
+      if (managed.includes(ticker)) throw new Error(`Current-session data for managed paper position ${ticker} is unavailable.`);
+      skipped.push({ ticker, reason: "Insufficient or stale daily bars." });
       continue;
     }
     const indicators = calculateIndicators(bars);
     for (const signal of evaluateExitSignals(bars, indicators)) {
       alerts.push(createAlert(ticker, signal, bars, indicators, date));
     }
-    if (marketRegime.passes) {
+    if (marketRegime.passes && watchlist.includes(ticker)) {
       const signal = evaluateBuySetup(bars, indicators);
       if (signal) alerts.push(createAlert(ticker, signal, bars, indicators, date));
     }
@@ -323,11 +380,18 @@ async function runScan(env: Env): Promise<ScanResult> {
     marketRegime
   );
   await env.WTRACK_KV.put(DASHBOARD_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  if (tradingEnabled) {
+    await paperTradingRequest(env, "/execute", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ date, phase, alerts })
+    });
+  }
   const notified = await sendNewAlerts(alerts, date, env);
   return { date, status: "completed", marketRegime, alerts, notified, skipped };
 }
 
-function isAfterRegularMarketClose(date: Date): boolean {
+function scheduledPhase(date: Date): "close" | "morning" | null {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     hour: "2-digit",
@@ -336,11 +400,26 @@ function isAfterRegularMarketClose(date: Date): boolean {
   }).formatToParts(date);
   const hour = parts.find((part) => part.type === "hour")?.value;
   const minute = parts.find((part) => part.type === "minute")?.value;
-  return hour === "16" && minute === "30";
+  if (hour === "16" && minute === "30") return "close";
+  if (hour === "10" && minute === "15") return "morning";
+  return null;
 }
 
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  if (url.pathname === "/admin/paper-trading") {
+    if (request.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
+    if (request.headers.get("origin") !== url.origin) return jsonResponse({ error: "Invalid request origin." }, 403);
+    const value: unknown = await request.json();
+    if (typeof value !== "object" || value === null || !("enabled" in value) ||
+      typeof value.enabled !== "boolean") return jsonResponse({ error: "Invalid switch value." }, 400);
+    const result = await paperTradingRequest(env, "/switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: value.enabled })
+    });
+    return jsonResponse(result);
+  }
   if (url.pathname === "/admin/ping") {
     if (request.method !== "GET") {
       return jsonResponse({ error: "Method not allowed." }, 405);
@@ -382,8 +461,9 @@ export default {
   },
 
   scheduled(controller: ScheduledController, env: Env, context: ExecutionContext): void {
-    if (!isAfterRegularMarketClose(new Date(controller.scheduledTime))) {
-      console.info("Skipping cron outside the regular-market close window.", {
+    const phase = scheduledPhase(new Date(controller.scheduledTime));
+    if (!phase) {
+      console.info("Skipping cron outside the configured New York scan windows.", {
         cron: controller.cron
       });
       return;
@@ -391,7 +471,7 @@ export default {
     context.waitUntil((async () => {
       let result: ScanResult;
       try {
-        result = await runScan(env);
+        result = await runScan(env, phase);
       } catch (error) {
         try {
           await env.WTRACK_KV.put(SCHEDULED_RUN_KEY, JSON.stringify({

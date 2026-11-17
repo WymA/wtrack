@@ -28,6 +28,15 @@
         </div>
       </header>
 
+      <section class="card mb-4" aria-labelledby="paper-title">
+        <div class="card-body">
+          <h2 id="paper-title" class="h4">Paper trading</h2>
+          <p>Setup A and Setup B execute only on scheduled scans. Switching off leaves existing orders open.</p>
+          <button id="paper-toggle" class="btn btn-outline-secondary" type="button" disabled>Loading…</button>
+          <p id="paper-status" class="text-body-secondary mt-2 mb-0" role="status">Loading paper trading status…</p>
+        </div>
+      </section>
+
       <section class="card" aria-labelledby="actions-title">
         <div class="card-body">
           <h2 id="actions-title" class="h4">Worker actions</h2>
@@ -43,7 +52,7 @@
       </section>
 
       <footer class="text-body-secondary small mt-3">
-        These actions are not access-controlled. Anyone who can reach this page can run them.
+        Protect the Admin page and switch with Cloudflare Access on every hostname.
       </footer>
     </main>
   </body>

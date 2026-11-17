@@ -1,4 +1,6 @@
 const rowsElement = document.querySelector("#ticker-rows");
+const signalRowsElement = document.querySelector("#signal-rows");
+const signalsMessageElement = document.querySelector("#signals-message");
 const messageElement = document.querySelector("#data-message");
 const themeToggle = document.querySelector("#theme-toggle");
 const systemThemeButton = document.querySelector("#system-theme-button");
@@ -61,8 +63,8 @@ function renderSignals(cell, signals) {
   }
 }
 
-function renderTickers(tickers) {
-  rowsElement.replaceChildren();
+function renderTickers(tickers, target, signalsOnly = false) {
+  target.replaceChildren();
 
   for (const ticker of tickers) {
     const row = document.createElement("tr");
@@ -78,18 +80,17 @@ function renderTickers(tickers) {
     addCell(row, displayNumber(ticker.close));
     addCell(row, displayChange(ticker.change, (number) => money.format(number)));
     addCell(row, displayPercent(ticker.changePercent));
-    addCell(row, displayNumber(ticker.stopLoss));
-    addCell(row, displayNumber(ticker.ema20));
-    addCell(row, displayNumber(ticker.ema50));
-    addCell(row, displayNumber(ticker.ema100));
-    addCell(row, displayNumber(ticker.ema200));
+    if (!signalsOnly) {
+      addCell(row, displayNumber(ticker.ema20));
+      addCell(row, displayNumber(ticker.ema50));
+      addCell(row, displayNumber(ticker.ema100));
+      addCell(row, displayNumber(ticker.ema200));
+    }
 
     const signalCell = addCell(row, "");
     renderSignals(signalCell, signals);
-    rowsElement.append(row);
+    target.append(row);
   }
-
-  document.querySelector("#ticker-count").textContent = String(tickers.length);
 }
 
 function renderMarketProxy(symbol, price, scannedAt) {
@@ -133,14 +134,27 @@ function renderScheduledRun(record) {
 }
 
 function renderSnapshot(payload) {
+  document.querySelector("#paper-trading-status").textContent = payload.paperTradingEnabled === true
+    ? "Setup A and Setup B enabled for Alpaca paper trading · scheduled scans only"
+    : "Paper trading disabled · signals only";
   const snapshot = payload.snapshot;
   const watchlist = Array.isArray(payload.watchlist) ? payload.watchlist : [];
-  const watchlistSet = new Set(watchlist);
-  const tickers = Array.isArray(snapshot?.tickers)
-    ? snapshot.tickers.filter((ticker) => watchlistSet.has(ticker.ticker))
-    : [];
+  const savedTickers = new Map(
+    (Array.isArray(snapshot?.tickers) ? snapshot.tickers : []).map((ticker) => [ticker.ticker, ticker])
+  );
+  const tickers = watchlist.map((ticker) => savedTickers.get(ticker) ?? { ticker });
+  const triggered = tickers.filter((ticker) => Array.isArray(ticker.signals) && ticker.signals.length > 0);
   renderScheduledRun(payload.lastScheduledRun);
-  renderTickers(tickers);
+  renderTickers(triggered, signalRowsElement, true);
+  renderTickers(tickers, rowsElement);
+  document.querySelector("#ticker-count").textContent = String(watchlist.length);
+  signalsMessageElement.textContent = !snapshot
+    ? "Waiting for the first scan."
+    : snapshot.status === "no-current-session"
+      ? "No current market session; signals were not evaluated."
+    : triggered.length
+      ? `${triggered.length} ticker${triggered.length === 1 ? "" : "s"} with signals in the latest scan.`
+      : "No signals in the latest scan.";
   renderMarketProxy("spy", snapshot?.marketProxies?.spy, snapshot?.scannedAt);
   renderMarketProxy("qqq", snapshot?.marketProxies?.qqq, snapshot?.scannedAt);
 
@@ -170,7 +184,7 @@ function renderSnapshot(payload) {
   document.querySelector("#updated-at").textContent =
     `Saved ${new Date(snapshot.scannedAt).toLocaleString()}`;
   messageElement.textContent = tickers.length
-    ? `${tickers.length} tracked ticker${tickers.length === 1 ? "" : "s"} in the latest snapshot.`
+    ? `${tickers.length} ticker${tickers.length === 1 ? "" : "s"} in the watchlist.`
     : "No watchlist tickers are configured.";
 }
 
@@ -189,6 +203,7 @@ async function loadDashboard() {
     renderSnapshot(payload);
   } catch (error) {
     messageElement.textContent = error instanceof Error ? error.message : "Unable to load dashboard data.";
+    signalsMessageElement.textContent = "Unable to load signals. Check the dashboard error below.";
   }
 }
 

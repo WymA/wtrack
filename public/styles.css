@@ -20,6 +20,20 @@
   --exit-badge-color: #d3f6df;
 }
 
+[data-bs-theme="dark"] body {
+  background-color: #101721;
+}
+
+[data-bs-theme="dark"] .dashboard .card {
+  --bs-card-bg: #202c3a;
+  --bs-card-border-color: #48596d;
+}
+
+[data-bs-theme="dark"] .dashboard .table {
+  --bs-table-bg: #202c3a;
+  --bs-table-border-color: #48596d;
+}
+
 .dashboard {
   margin: 0 auto;
   max-width: 1440px;
@@ -82,6 +96,8 @@
 }
 
 .entry-row > * {
+  --bs-table-bg-type: transparent;
+  --bs-table-bg-state: transparent;
   background-color: var(--entry-bg);
   background-image: none;
   border-bottom-color: var(--entry-border);
@@ -89,6 +105,8 @@
 }
 
 .exit-row > * {
+  --bs-table-bg-type: transparent;
+  --bs-table-bg-state: transparent;
   background-color: var(--exit-bg);
   background-image: none;
   border-bottom-color: var(--exit-border);
