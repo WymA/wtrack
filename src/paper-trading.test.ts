@@ -68,7 +68,7 @@ function harness() {
     method: "POST",
     body: JSON.stringify({ date: "2026-11-16", phase, alerts })
   }));
-  return { execute, brokerOrders, positions, stored, object };
+  return { execute, brokerOrders, positions, stored, object, fetcher };
 }
 
 afterEach(() => {
@@ -77,6 +77,22 @@ afterEach(() => {
 });
 
 describe("paper trading", () => {
+  it("returns saved order records newest first without contacting Alpaca, even when off", async () => {
+    const { execute, brokerOrders, object, fetcher } = harness();
+    expect(await (await object.fetch(new Request("https://paper.internal/orders"))).json()).toEqual({ orders: [] });
+    await execute([alert("AAPL", "Setup A"), alert("MSFT", "Setup B")]);
+    brokerOrders[0]!.status = "filled";
+    await object.fetch(new Request("https://paper.internal/switch", {
+      method: "POST", body: JSON.stringify({ enabled: false })
+    }));
+    fetcher.mockClear();
+    const response = await object.fetch(new Request("https://paper.internal/orders"));
+    const result = await response.json() as { orders: { ticker: string; status: string; clientId: string }[] };
+    expect(result.orders.map((order) => order.ticker)).toEqual(["MSFT", "AAPL"]);
+    expect(result.orders[1]).toMatchObject({ status: "new", clientId: expect.stringContaining("AAPL") });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("persists the switch and places no orders while off", async () => {
     const { execute, brokerOrders, object, stored } = harness();
     stored.delete("enabled");

@@ -3,6 +3,9 @@ const resultElement = document.querySelector("#action-result");
 const actionButtons = [...document.querySelectorAll("[data-action]")];
 const paperToggle = document.querySelector("#paper-toggle");
 const paperStatus = document.querySelector("#paper-status");
+const orderRows = document.querySelector("#order-rows");
+const ordersStatus = document.querySelector("#orders-status");
+const ordersRefresh = document.querySelector("#orders-refresh");
 let paperEnabled = null;
 
 const actionPaths = {
@@ -11,6 +14,40 @@ const actionPaths = {
   watchlist: "/admin/watchlist"
 };
 
+async function loadPaperOrders() {
+  ordersRefresh.disabled = true;
+  ordersStatus.textContent = "Loading orders…";
+  try {
+    const response = await fetch("/admin/orders", { cache: "no-store" });
+    if (!response.ok) throw new Error(`Could not load orders (${response.status}).`);
+    const result = await response.json();
+    const fields = ["signalDate", "phase", "ticker", "side", "qty", "filledQty", "limit", "status", "clientId"];
+    if (!Array.isArray(result.orders) || !result.orders.every((order) =>
+      order && fields.every((field) => typeof order[field] === "string") &&
+      (order.id === undefined || typeof order.id === "string")
+    )) throw new Error("Invalid stored order history.");
+    orderRows.replaceChildren();
+    for (const order of result.orders) {
+      const row = document.createElement("tr");
+      for (const field of [...fields, "id"]) {
+        const cell = document.createElement("td");
+        cell.textContent = order[field] ?? "—";
+        row.append(cell);
+      }
+      orderRows.append(row);
+    }
+    ordersStatus.textContent = result.orders.length
+      ? `${result.orders.length} stored record${result.orders.length === 1 ? "" : "s"}.`
+      : "No paper trading orders yet.";
+  } catch (error) {
+    orderRows.replaceChildren();
+    ordersStatus.textContent = error instanceof Error ? error.message : "Could not load paper trading orders.";
+  } finally {
+    ordersRefresh.disabled = false;
+  }
+}
+
+ordersRefresh.addEventListener("click", () => { void loadPaperOrders(); });
 function showPaperStatus(enabled) {
   paperEnabled = enabled;
   paperToggle.disabled = false;
@@ -95,3 +132,4 @@ for (const button of actionButtons) {
   });
 }
 void loadPaperStatus();
+void loadPaperOrders();

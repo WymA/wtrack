@@ -37,7 +37,7 @@ function createDashboard() {
 describe("dashboard watchlist rendering", () => {
   it("shows all configured tickers as placeholders before the first scan", () => {
     const { renderSnapshot, elements } = createDashboard();
-    renderSnapshot({ watchlist: ["AAPL", "MSFT"], snapshot: null });
+    renderSnapshot({ watchlist: ["AAPL", "MSFT"], snapshot: null, paperTradingEnabled: false });
     const rows = elements.get("#ticker-rows").children;
     expect(rows.map((row) => row.children[0].textContent)).toEqual(["AAPL", "MSFT"]);
     expect(rows[0].children).toHaveLength(10);
@@ -45,12 +45,14 @@ describe("dashboard watchlist rendering", () => {
     expect(elements.get("#signal-rows").children).toHaveLength(0);
     expect(elements.get("#signals-message").textContent).toBe("Waiting for the first scan.");
     expect(elements.get("#ticker-count").textContent).toBe("2");
+    expect(elements.get("#paper-trading-status").textContent).toBe("Paper trading: OFF · signals only");
   });
 
   it("shows only current watchlist signals and keeps unscanned symbols in the full list", () => {
     const { renderSnapshot, elements } = createDashboard();
     renderSnapshot({
       watchlist: ["AAPL", "MSFT", "NEW"],
+      paperTradingEnabled: true,
       snapshot: {
         scannedAt: "2026-11-16T21:30:00Z",
         sessionDate: "2026-11-16",
@@ -71,6 +73,7 @@ describe("dashboard watchlist rendering", () => {
     expect(rows.map((row) => row.children[0].textContent)).toEqual(["AAPL", "MSFT", "NEW"]);
     expect(rows[2].children[2].textContent).toBe("—");
     expect(elements.get("#ticker-count").textContent).toBe("3");
+    expect(elements.get("#paper-trading-status").textContent).toContain("Paper trading: ON");
     renderSnapshot({
       watchlist: ["AAPL"],
       snapshot: {

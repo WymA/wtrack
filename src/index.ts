@@ -407,6 +407,10 @@ function scheduledPhase(date: Date): "close" | "morning" | null {
 
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  if (url.pathname === "/admin/orders") {
+    if (request.method !== "GET") return jsonResponse({ error: "Method not allowed." }, 405);
+    return jsonResponse(await paperTradingRequest(env, "/orders"));
+  }
   if (url.pathname === "/admin/paper-trading") {
     if (request.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
     if (request.headers.get("origin") !== url.origin) return jsonResponse({ error: "Invalid request origin." }, 403);

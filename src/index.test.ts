@@ -28,6 +28,7 @@ function createEnv(values: Map<string, string>, watchlist: unknown = []) {
       get: () => ({
         async fetch(url: string, init?: RequestInit) {
           if (url.endsWith("/status")) return Response.json({ enabled });
+          if (url.endsWith("/orders")) return Response.json({ orders: [{ ticker: "AAPL", status: "new" }] });
           if (url.endsWith("/switch")) {
             const value = JSON.parse(String(init?.body)) as { enabled: boolean };
             enabled = value.enabled;
@@ -43,6 +44,16 @@ function createEnv(values: Map<string, string>, watchlist: unknown = []) {
 }
 
 describe("admin actions", () => {
+  it("serves saved orders only through the admin GET route", async () => {
+    const { env } = createEnv(new Map());
+    const response = await worker.fetch(new Request("https://wtrack.example/admin/orders"), env);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ orders: [{ ticker: "AAPL", status: "new" }] });
+    const post = await worker.fetch(new Request("https://wtrack.example/admin/orders", { method: "POST" }), env);
+    expect(post.status).toBe(405);
+  });
+
   it("completes scans with signals when notifications are not configured", async () => {
     const values = new Map<string, string>();
     const { env } = createEnv(values, ["AAPL"]);

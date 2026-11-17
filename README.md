@@ -79,6 +79,8 @@ Paper fills are simulated and may differ from live trading. A canceled or reject
 
 The `/admin` page provides the paper-trading switch and buttons to run a scan, check Worker health, and read the watchlist. Protect the page and its actions using Cloudflare Access; the Worker does not independently authenticate callers.
 
+The Admin order table reads the strategy's stored order ledger, including unconfirmed intents; it does not include unrelated Alpaca orders. Signal date is not order submission time. Statuses and filled quantities reflect the last scheduled reconciliation and may be stale, including while trading is OFF. Check Alpaca for current order status.
+
 The watchlist supports up to 200 ticker entries; symbols are normalized and duplicates removed. Each scan checks all listed symbols for exit signals, regardless of the SPY entry filter, and checks for entry setups when the filter passes. SPY and QQQ are fetched for the market cards even when they are not on the watchlist; only SPY is used for the entry filter.
 
 ### Run a scheduled event locally

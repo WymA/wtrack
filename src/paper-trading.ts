@@ -78,6 +78,9 @@ export class PaperTrading {
         const orders = await this.orders();
         return Response.json({ symbols: this.managedSymbols(orders) });
       }
+      if (request.method === "GET" && path === "/orders") {
+        return Response.json({ orders: (await this.orders()).reverse() });
+      }
       if (request.method !== "POST" || path !== "/execute") return new Response("Not found", { status: 404 });
       if (await this.state.storage.get<boolean>("enabled") !== true) {
         return Response.json({ submitted: 0, disabled: true });

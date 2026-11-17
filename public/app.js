@@ -135,8 +135,10 @@ function renderScheduledRun(record) {
 
 function renderSnapshot(payload) {
   document.querySelector("#paper-trading-status").textContent = payload.paperTradingEnabled === true
-    ? "Setup A and Setup B enabled for Alpaca paper trading · scheduled scans only"
-    : "Paper trading disabled · signals only";
+    ? "Paper trading: ON · Setup A and Setup B · scheduled scans only"
+    : payload.paperTradingEnabled === false
+      ? "Paper trading: OFF · signals only"
+      : "Paper trading: status unavailable.";
   const snapshot = payload.snapshot;
   const watchlist = Array.isArray(payload.watchlist) ? payload.watchlist : [];
   const savedTickers = new Map(
@@ -204,6 +206,7 @@ async function loadDashboard() {
   } catch (error) {
     messageElement.textContent = error instanceof Error ? error.message : "Unable to load dashboard data.";
     signalsMessageElement.textContent = "Unable to load signals. Check the dashboard error below.";
+    document.querySelector("#paper-trading-status").textContent = "Paper trading: status unavailable.";
   }
 }
 
