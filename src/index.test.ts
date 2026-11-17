@@ -156,13 +156,25 @@ describe("admin actions", () => {
     }
   });
 
-  it("reads and normalizes the asset watchlist without modifying old KV lists", async () => {
+  it("returns the watchlist file unchanged without accessing KV or paper trading state", async () => {
+    const { env, kv, assetsFetch } = createEnv(new Map([["watchlist", '["OLD"]']]));
+    const source = '{\n  "watchlist": ["aapl", " MSFT ", "AAPL"],\n  "note": "from file"\n}\n';
+    assetsFetch.mockResolvedValueOnce(new Response(source, { headers: { "content-type": "application/json" } }));
+    const getTradingObject = vi.spyOn(env.PAPER_TRADING, "get");
+    const response = await worker.fetch(new Request("https://wtrack.example/admin/watchlist"), env);
+    expect(await response.text()).toBe(source);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(kv.get).not.toHaveBeenCalled();
+    expect(getTradingObject).not.toHaveBeenCalled();
+  });
+
+  it("normalizes the asset watchlist for the dashboard without modifying old KV lists", async () => {
     const values = new Map([
       ["watchlist", '["OLD"]'],
       ["holdings", '["LEGACY"]']
     ]);
     const { env, kv } = createEnv(values, ["aapl", " MSFT ", "AAPL"]);
-    const request = new Request("https://wtrack.example/admin/watchlist");
+    const request = new Request("https://wtrack.example/admin/dashboard");
 
     const response = await worker.fetch(request, env);
 
@@ -247,8 +259,8 @@ describe("admin actions", () => {
       }), env);
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ enabled });
-      const state = await worker.fetch(new Request("https://wtrack.example/admin/watchlist"), env);
-      expect(await state.json()).toMatchObject({ paperTradingEnabled: enabled });
+      const state = await worker.fetch(new Request("https://wtrack.example/admin/paper-trading"), env);
+      expect(await state.json()).toEqual({ enabled });
     }
   });
 
@@ -280,7 +292,7 @@ describe("admin actions", () => {
         success: false
       });
 
-      const response = await worker.fetch(new Request("https://wtrack.example/admin/watchlist"), env);
+      const response = await worker.fetch(new Request("https://wtrack.example/admin/dashboard"), env);
       const payload = await response.json() as { lastScheduledRun: unknown };
       expect(payload.lastScheduledRun).toEqual(JSON.parse(storedRecord ?? ""));
     } finally {

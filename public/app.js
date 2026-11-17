@@ -8,6 +8,7 @@ const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
 const scheduledRunStatusElement = document.querySelector("#scheduled-run-status");
 const scheduledRunTimeElement = document.querySelector("#scheduled-run-time");
 const scheduledRunDetailElement = document.querySelector("#scheduled-run-detail");
+const paperTradingStatusElement = document.querySelector("#paper-trading-status");
 let followsSystemTheme = true;
 
 const money = new Intl.NumberFormat(undefined, {
@@ -134,9 +135,13 @@ function renderScheduledRun(record) {
 }
 
 function renderSnapshot(payload) {
-  document.querySelector("#paper-trading-status").textContent = payload.paperTradingEnabled === true
+  const paperEnabled = payload.paperTradingEnabled;
+  paperTradingStatusElement.className = `fw-semibold mb-0 ${
+    paperEnabled === true ? "text-success-emphasis" : paperEnabled === false ? "text-danger-emphasis" : "text-body-secondary"
+  }`;
+  paperTradingStatusElement.textContent = paperEnabled === true
     ? "Paper trading: ON · Setup A and Setup B · scheduled scans only"
-    : payload.paperTradingEnabled === false
+    : paperEnabled === false
       ? "Paper trading: OFF · signals only"
       : "Paper trading: status unavailable.";
   const snapshot = payload.snapshot;
@@ -195,7 +200,7 @@ async function loadDashboard() {
   try {
     const [healthResponse, watchlistResponse] = await Promise.all([
       fetch("/admin/ping", { cache: "no-store" }),
-      fetch("/admin/watchlist", { cache: "no-store" })
+      fetch("/admin/dashboard", { cache: "no-store" })
     ]);
     if (!healthResponse.ok || !watchlistResponse.ok) {
       throw new Error("The dashboard API returned an error.");
@@ -206,7 +211,8 @@ async function loadDashboard() {
   } catch (error) {
     messageElement.textContent = error instanceof Error ? error.message : "Unable to load dashboard data.";
     signalsMessageElement.textContent = "Unable to load signals. Check the dashboard error below.";
-    document.querySelector("#paper-trading-status").textContent = "Paper trading: status unavailable.";
+    paperTradingStatusElement.className = "fw-semibold mb-0 text-body-secondary";
+    paperTradingStatusElement.textContent = "Paper trading: status unavailable.";
   }
 }
 

@@ -54,17 +54,19 @@ function showPaperStatus(enabled) {
   paperToggle.className = enabled ? "btn btn-danger" : "btn btn-success";
   paperToggle.textContent = enabled ? "Turn paper trading OFF" : "Turn paper trading ON";
   paperToggle.setAttribute("aria-pressed", String(enabled));
+  paperStatus.className = `mt-2 mb-0 ${enabled ? "text-success-emphasis" : "text-danger-emphasis"}`;
   paperStatus.textContent = enabled ? "Paper trading is ON." : "Paper trading is OFF. Existing orders remain open.";
 }
 
 async function loadPaperStatus() {
   try {
-    const response = await fetch("/admin/watchlist", { cache: "no-store" });
+    const response = await fetch("/admin/paper-trading", { cache: "no-store" });
     if (!response.ok) throw new Error(`Could not load paper trading status (${response.status}).`);
     const result = await response.json();
-    if (typeof result.paperTradingEnabled !== "boolean") throw new Error("Invalid paper trading status.");
-    showPaperStatus(result.paperTradingEnabled);
+    if (typeof result.enabled !== "boolean") throw new Error("Invalid paper trading status.");
+    showPaperStatus(result.enabled);
   } catch (error) {
+    paperStatus.className = "text-body-secondary mt-2 mb-0";
     paperStatus.textContent = error instanceof Error ? error.message : "Could not load paper trading status.";
   }
 }
@@ -72,6 +74,7 @@ async function loadPaperStatus() {
 paperToggle.addEventListener("click", async () => {
   if (paperEnabled === null) return;
   paperToggle.disabled = true;
+  paperStatus.className = "text-body-secondary mt-2 mb-0";
   paperStatus.textContent = "Updating paper trading status…";
   try {
     const response = await fetch("/admin/paper-trading", {

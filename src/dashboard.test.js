@@ -46,6 +46,7 @@ describe("dashboard watchlist rendering", () => {
     expect(elements.get("#signals-message").textContent).toBe("Waiting for the first scan.");
     expect(elements.get("#ticker-count").textContent).toBe("2");
     expect(elements.get("#paper-trading-status").textContent).toBe("Paper trading: OFF · signals only");
+    expect(elements.get("#paper-trading-status").className).toContain("text-danger-emphasis");
   });
 
   it("shows only current watchlist signals and keeps unscanned symbols in the full list", () => {
@@ -74,6 +75,7 @@ describe("dashboard watchlist rendering", () => {
     expect(rows[2].children[2].textContent).toBe("—");
     expect(elements.get("#ticker-count").textContent).toBe("3");
     expect(elements.get("#paper-trading-status").textContent).toContain("Paper trading: ON");
+    expect(elements.get("#paper-trading-status").className).toContain("text-success-emphasis");
     renderSnapshot({
       watchlist: ["AAPL"],
       snapshot: {
@@ -86,5 +88,6 @@ describe("dashboard watchlist rendering", () => {
     });
     expect(elements.get("#signal-rows").children).toHaveLength(0);
     expect(elements.get("#signals-message").textContent).toBe("No current market session; signals were not evaluated.");
+    expect(elements.get("#paper-trading-status").className).toContain("text-body-secondary");
   });
 });

@@ -27,8 +27,8 @@ function createAdmin(fetcher) {
 }
 
 it("loads and updates the paper trading switch", async () => {
-  const fetcher = vi.fn(async (url) => {
-    if (url === "/admin/watchlist") return Response.json({ paperTradingEnabled: false });
+  const fetcher = vi.fn(async (url, init) => {
+    if (url === "/admin/paper-trading" && !init?.method) return Response.json({ enabled: false });
     if (url === "/admin/orders") return Response.json({ orders: [] });
     if (url === "/admin/paper-trading") return Response.json({ enabled: true });
     throw new Error(`Unexpected request: ${url}`);
@@ -36,16 +36,18 @@ it("loads and updates the paper trading switch", async () => {
   const elements = createAdmin(fetcher);
   const button = elements.get("#paper-toggle");
   await vi.waitFor(() => expect(button.textContent).toBe("Turn paper trading ON"));
+  expect(elements.get("#paper-status").className).toContain("text-danger-emphasis");
   await button.click();
   expect(button.textContent).toBe("Turn paper trading OFF");
-  const switchCall = fetcher.mock.calls.find(([url]) => url === "/admin/paper-trading");
+  expect(elements.get("#paper-status").className).toContain("text-success-emphasis");
+  const switchCall = fetcher.mock.calls.find(([url, init]) => url === "/admin/paper-trading" && init?.method === "POST");
   expect(JSON.parse(switchCall[1].body)).toEqual({ enabled: true });
 });
 
 it("renders stored order details as text and reports refresh failures", async () => {
   let ordersAvailable = true;
   const fetcher = vi.fn(async (url) => {
-    if (url === "/admin/watchlist") return Response.json({ paperTradingEnabled: true });
+    if (url === "/admin/paper-trading") return Response.json({ enabled: true });
     if (url === "/admin/orders") return ordersAvailable
       ? Response.json({ orders: [{
         signalDate: "2026-11-16", phase: "close", ticker: "<AAPL>", side: "buy",

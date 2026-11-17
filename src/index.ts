@@ -81,19 +81,23 @@ function normalizeTickerList(value: unknown): string[] {
   return [...new Set(tickers)];
 }
 
-async function loadTickerList(env: Env): Promise<string[]> {
+async function loadWatchlistAsset(env: Env): Promise<{ response: Response; tickers: string[] }> {
   const response = await env.ASSETS.fetch(new Request(WATCHLIST_ASSET_URL));
   if (!response.ok) {
     throw new Error(`Unable to load watchlist.json: asset returned status ${response.status}.`);
   }
-  const value: unknown = await response.json();
+  const value: unknown = await response.clone().json();
   if (typeof value !== "object" || value === null || !("watchlist" in value)) {
     throw new TypeError("watchlist.json must contain a watchlist array.");
   }
-  return normalizeTickerList(value.watchlist);
+  return { response, tickers: normalizeTickerList(value.watchlist) };
 }
 
-async function handleTickerList(env: Env): Promise<Response> {
+async function loadTickerList(env: Env): Promise<string[]> {
+  return (await loadWatchlistAsset(env)).tickers;
+}
+
+async function handleDashboard(env: Env): Promise<Response> {
   const [tickers, storedSnapshot, storedScheduledRun, paperTradingEnabled] = await Promise.all([
     loadTickerList(env),
     env.WTRACK_KV.get(DASHBOARD_SNAPSHOT_KEY),
@@ -412,6 +416,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     return jsonResponse(await paperTradingRequest(env, "/orders"));
   }
   if (url.pathname === "/admin/paper-trading") {
+    if (request.method === "GET") return jsonResponse({ enabled: await paperTradingStatus(env) });
     if (request.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
     if (request.headers.get("origin") !== url.origin) return jsonResponse({ error: "Invalid request origin." }, 403);
     const value: unknown = await request.json();
@@ -440,7 +445,14 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (request.method !== "GET") {
       return jsonResponse({ error: "Method not allowed." }, 405);
     }
-    return handleTickerList(env);
+    const { response } = await loadWatchlistAsset(env);
+    const headers = new Headers(response.headers);
+    headers.set("cache-control", "no-store");
+    return new Response(response.body, { status: response.status, headers });
+  }
+  if (url.pathname === "/admin/dashboard") {
+    if (request.method !== "GET") return jsonResponse({ error: "Method not allowed." }, 405);
+    return handleDashboard(env);
   }
   if (url.pathname === "/admin" || url.pathname === "/admin/") {
     if (request.method !== "GET") {
