@@ -1,7 +1,7 @@
 import { fetchDailyBars, REQUIRED_DAILY_BARS } from "./data";
 import { calculateIndicators } from "./indicators";
 import { sendNewAlerts } from "./notifications";
-import { evaluateBuySetup, evaluateExitSignals, marketRegimePasses } from "./strategy";
+import { evaluateBuySetup, evaluateExitSignals, marketRegimePasses, recentSwingLow } from "./strategy";
 import type { Bar, Env, IndicatorSeries, SignalType, StockAlert } from "./types";
 export { PaperTrading } from "./paper-trading";
 
@@ -206,15 +206,12 @@ function createAlert(
   ) {
     throw new Error(`Indicator data for ${ticker} is incomplete.`);
   }
-  const recentBars = bars.slice(-5);
-  if (recentBars.length === 0) throw new Error(`Price data for ${ticker} is empty.`);
-
   return {
     ticker,
     type,
     date,
     close: latest.close,
-    stopLoss: Math.min(...recentBars.map((bar) => bar.low)),
+    stopLoss: recentSwingLow(bars),
     ema20,
     ema50,
     ema100,
@@ -246,11 +243,10 @@ function createTickerSnapshot(
   }
 
   const indicators = calculateIndicators(bars);
-  const recentBars = bars.slice(-5);
   return {
     ticker,
     ...price,
-    stopLoss: recentBars.length > 0 ? Math.min(...recentBars.map((bar) => bar.low)) : null,
+    stopLoss: recentSwingLow(bars),
     ema20: indicators.ema20[index] ?? null,
     ema50: indicators.ema50[index] ?? null,
     ema100: indicators.ema100[index] ?? null,

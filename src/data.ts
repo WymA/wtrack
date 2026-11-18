@@ -1,9 +1,11 @@
 import type { Bar, Env } from "./types";
+import { REQUIRED_DAILY_BARS } from "./strategy";
+
+export { REQUIRED_DAILY_BARS };
 
 const ALPACA_BARS_URL = "https://data.alpaca.markets/v2/stocks/bars";
 const BATCH_SIZE = 20;
 const HISTORY_DAYS = 600;
-const MIN_DAILY_BARS = 300;
 const MAX_PAGES_PER_BATCH = 10;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,12 +81,24 @@ export async function fetchDailyBars(
   now = new Date(),
   fetcher: typeof fetch = fetch
 ): Promise<Record<string, Bar[]>> {
+  const start = new Date(now.getTime() - HISTORY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const result = await fetchHistoricalDailyBars(tickers, env, start, now.toISOString(), fetcher);
+  return Object.fromEntries(Object.entries(result).map(([ticker, bars]) => [
+    ticker, bars.slice(-REQUIRED_DAILY_BARS)
+  ]));
+}
+
+export async function fetchHistoricalDailyBars(
+  tickers: readonly string[],
+  env: Pick<Env, "ALPACA_API_KEY" | "ALPACA_API_SECRET_KEY">,
+  start: string,
+  end: string,
+  fetcher: typeof fetch = fetch
+): Promise<Record<string, Bar[]>> {
   if (!env.ALPACA_API_KEY || !env.ALPACA_API_SECRET_KEY) {
     throw new Error("ALPACA_API_KEY and ALPACA_API_SECRET_KEY must be configured.");
   }
 
-  const start = new Date(now.getTime() - HISTORY_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const end = now.toISOString();
   const result: Record<string, Bar[]> = Object.fromEntries(
     tickers.map((ticker) => [ticker, []])
   );
@@ -142,13 +156,8 @@ export async function fetchDailyBars(
     } while (pageToken);
   }
 
-  for (const ticker of Object.keys(result)) {
-    const sorted = (result[ticker] ?? [])
-      .sort((left, right) => left.timestamp.localeCompare(right.timestamp));
-    result[ticker] = sorted.slice(-MIN_DAILY_BARS);
-  }
+  for (const bars of Object.values(result)) bars.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
 
   return result;
 }
 
-export const REQUIRED_DAILY_BARS = MIN_DAILY_BARS;
