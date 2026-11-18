@@ -1,20 +1,5 @@
-export interface Bar {
-  timestamp: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
-
-export interface IndicatorSeries {
-  ema20: number[];
-  ema50: number[];
-  ema100: number[];
-  ema200: number[];
-}
-
-export type SignalType = "Setup A" | "Setup B" | "Exit Tier 2" | "Exit Tier 3";
+import type { SignalType } from "./strategy-types";
+export type { Bar, IndicatorSeries, SignalType } from "./strategy-types";
 
 export interface StockAlert {
   ticker: string;

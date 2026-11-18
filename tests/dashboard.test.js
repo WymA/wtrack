@@ -52,9 +52,8 @@ it("shares the WTrack header and keeps the selected theme when navigating to Adm
     const home = { getAttribute: () => "/", setAttribute: vi.fn() };
     const admin = { getAttribute: () => "/admin", setAttribute: vi.fn() };
     const toggle = { querySelector: () => icon, setAttribute: vi.fn(), addEventListener: vi.fn() };
-    const reset = { addEventListener: vi.fn() };
     const header = {
-      querySelector: (selector) => selector === "#theme-toggle" ? toggle : reset,
+      querySelector: (selector) => selector === "#theme-toggle" ? toggle : null,
       querySelectorAll: () => [home, admin]
     };
     runInContext(script, createContext({
@@ -69,15 +68,15 @@ it("shares the WTrack header and keeps the selected theme when navigating to Adm
         matchMedia: () => system,
         localStorage: {
           getItem: (key) => preferences.get(key),
-          setItem: (key, value) => preferences.set(key, value),
-          removeItem: (key) => preferences.delete(key)
+          setItem: (key, value) => preferences.set(key, value)
         }
       }
     }));
-    return { theme, icon, home, admin, toggle, reset };
+    return { theme, icon, home, admin, toggle, markup: header.innerHTML };
   }
 
   const homePage = loadHeader("/");
+  expect(homePage.markup).not.toContain("Use system theme");
   expect(homePage.home.setAttribute).toHaveBeenCalledWith("aria-current", "page");
   expect(homePage.icon.textContent).toBe("dark_mode");
   homePage.toggle.addEventListener.mock.calls[0][1]();
@@ -88,9 +87,9 @@ it("shares the WTrack header and keeps the selected theme when navigating to Adm
   expect(adminPage.admin.setAttribute).toHaveBeenCalledWith("aria-current", "page");
   expect(adminPage.theme["data-bs-theme"]).toBe("dark");
   expect(adminPage.toggle.setAttribute).toHaveBeenLastCalledWith("aria-label", "Switch to light mode");
-  adminPage.reset.addEventListener.mock.calls[0][1]();
+  adminPage.toggle.addEventListener.mock.calls[0][1]();
   expect(adminPage.theme["data-bs-theme"]).toBe("light");
-  expect(adminPage.reset.hidden).toBe(true);
+  expect(adminPage.icon.textContent).toBe("dark_mode");
 });
 
 describe("dashboard watchlist rendering", () => {

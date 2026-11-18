@@ -1,4 +1,4 @@
-import type { Bar, IndicatorSeries } from "./types";
+import type { Bar, IndicatorSeries } from "./strategy-types";
 
 export function calculateEma(values: readonly number[], period: number): number[] {
   if (!Number.isInteger(period) || period <= 0) {

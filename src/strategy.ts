@@ -1,4 +1,7 @@
-import type { Bar, IndicatorSeries, SignalType } from "./types";
+import type { Bar, ExitSignal, IndicatorSeries, RightSideSetup } from "./strategy-types";
+
+export const REQUIRED_DAILY_BARS = 300;
+const RIGHT_SIDE_SETUPS: readonly RightSideSetup[] = ["Setup A", "Setup B"];
 
 const MIN_HISTORY = 6;
 
@@ -19,8 +22,9 @@ export function marketRegimePasses(spyBars: readonly Bar[], spy: IndicatorSeries
 
 export function evaluateBuySetup(
   bars: readonly Bar[],
-  indicators: IndicatorSeries
-): "Setup A" | "Setup B" | null {
+  indicators: IndicatorSeries,
+  active: readonly RightSideSetup[] = RIGHT_SIDE_SETUPS
+): RightSideSetup | null {
   const index = bars.length - 1;
   if (index < MIN_HISTORY - 1) return null;
 
@@ -55,7 +59,7 @@ export function evaluateBuySetup(
     today.close > ema20 &&
     today.close > yesterday.high;
 
-  if (perfectStack && trendSlopesUp && recentPullbackToValue && bullishTrigger) {
+  if (active.includes("Setup A") && perfectStack && trendSlopesUp && recentPullbackToValue && bullishTrigger) {
     return "Setup A";
   }
 
@@ -85,7 +89,7 @@ export function evaluateBuySetup(
       previous20 <= previous50 && current20 > current50;
   });
 
-  if (macroTrendUp && recentDeepPullback && reclaimedShortTermAverages && recentBullishCross) {
+  if (active.includes("Setup B") && macroTrendUp && recentDeepPullback && reclaimedShortTermAverages && recentBullishCross) {
     return "Setup B";
   }
 
@@ -95,7 +99,7 @@ export function evaluateBuySetup(
 export function evaluateExitSignals(
   bars: readonly Bar[],
   indicators: IndicatorSeries
-): SignalType[] {
+): ExitSignal[] {
   const index = bars.length - 1;
   if (index < 1) return [];
 
@@ -113,7 +117,7 @@ export function evaluateExitSignals(
     return [];
   }
 
-  const signals: SignalType[] = [];
+  const signals: ExitSignal[] = [];
   if (today.close < ema50Today && yesterday.close < ema50Yesterday) {
     signals.push("Exit Tier 2");
   }
@@ -121,4 +125,33 @@ export function evaluateExitSignals(
     signals.push("Exit Tier 3");
   }
   return signals;
+}
+
+export function recentSwingLow(bars: readonly Bar[], lookback = 5): number {
+  if (!bars.length) throw new Error("Cannot calculate a swing low without price bars.");
+  return Math.min(...bars.slice(-lookback).map(({ low }) => low));
+}
+
+export function evaluateSupportTouch(
+  priorBars: readonly Bar[],
+  indicators: IndicatorSeries,
+  session: Pick<Bar, "open" | "low">
+): { support: number; price: number } | null {
+  const index = priorBars.length - 1;
+  if (!hasUpwardSlope(indicators.ema200, index)) return null;
+  const yesterday = priorBars[index];
+  if (!yesterday) return null;
+
+  const levels = [indicators.ema100[index], indicators.ema200[index]]
+    .filter((level) => level !== undefined && yesterday.close > level)
+    .sort((left, right) => right - left);
+  for (const support of levels) {
+    const limit = support * 1.005;
+    if (session.low <= limit) return { support, price: Math.min(session.open, limit) };
+  }
+  return null;
+}
+
+export function supportFailure(close: number, support: number, percent = 3): boolean {
+  return close < support * (1 - percent / 100);
 }

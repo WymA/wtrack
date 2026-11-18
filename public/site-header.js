@@ -32,12 +32,9 @@ document.addEventListener("DOMContentLoaded", () => {
         Admin
       </a>
     </nav>
-    <div class="d-flex flex-wrap align-items-center gap-2">
-      <button class="btn btn-outline-secondary theme-toggle" type="button" id="theme-toggle">
-        <span class="material-symbols-outlined" aria-hidden="true"></span>
-      </button>
-      <button class="btn btn-link" type="button" id="system-theme-button">Use system theme</button>
-    </div>
+    <button class="btn btn-outline-secondary theme-toggle" type="button" id="theme-toggle">
+      <span class="material-symbols-outlined" aria-hidden="true"></span>
+    </button>
   `;
 
   const path = window.location.pathname.replace(/\/$/, "") || "/";
@@ -49,7 +46,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const themeToggle = header.querySelector("#theme-toggle");
   const themeIcon = themeToggle.querySelector(".material-symbols-outlined");
-  const systemThemeButton = header.querySelector("#system-theme-button");
 
   function updateThemeControls() {
     applyTheme();
@@ -58,14 +54,12 @@ document.addEventListener("DOMContentLoaded", () => {
     themeIcon.textContent = isDark ? "light_mode" : "dark_mode";
     themeToggle.setAttribute("aria-label", label);
     themeToggle.title = label;
-    systemThemeButton.hidden = !themePreference;
   }
 
   function selectTheme(theme) {
     themePreference = theme;
     try {
-      if (theme) window.localStorage.setItem(themeKey, theme);
-      else window.localStorage.removeItem(themeKey);
+      window.localStorage.setItem(themeKey, theme);
     } catch (error) {
       console.warn("Could not save the WTrack theme preference.", error);
     }
@@ -73,7 +67,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   themeToggle.addEventListener("click", () => selectTheme(currentTheme() === "dark" ? "light" : "dark"));
-  systemThemeButton.addEventListener("click", () => selectTheme(undefined));
   systemColorScheme.addEventListener("change", updateThemeControls);
   updateThemeControls();
 });
