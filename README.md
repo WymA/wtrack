@@ -97,8 +97,10 @@ Set `time` to a weekday timestamp at 16:30 in `America/New_York` so the Worker p
 
 ## Commands
 
+Worker source lives in [src/](./src), and Vitest suites live in [tests/](./tests).
+
 - `pnpm dev` — run the local Worker.
 - `pnpm cf-typegen` — regenerate Cloudflare binding types after changing `wrangler.toml`.
 - `pnpm typecheck` — type-check the project.
-- `pnpm test` — run strategy and indicator tests.
+- `pnpm test` — run the full Vitest suite.
 - `pnpm deploy` — deploy with Wrangler.

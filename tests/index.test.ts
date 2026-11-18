@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import worker from "./index";
-import type { Env, StockAlert } from "./types";
+import worker from "../src/index";
+import type { Env, StockAlert } from "../src/types";
 
 function createEnv(values: Map<string, string>, watchlist: unknown = []) {
   let enabled = false;

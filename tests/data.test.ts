@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetchDailyBars } from "./data";
+import { fetchDailyBars } from "../src/data";
 
 const credentials = {
   ALPACA_API_KEY: "test-key",

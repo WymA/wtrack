@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { sendNewAlerts } from "./notifications";
-import type { Env, StockAlert } from "./types";
+import { sendNewAlerts } from "../src/notifications";
+import type { Env, StockAlert } from "../src/types";
 
 const alert: StockAlert = {
   ticker: "AAPL",

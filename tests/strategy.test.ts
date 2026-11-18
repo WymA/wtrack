@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { evaluateBuySetup, evaluateExitSignals, marketRegimePasses } from "./strategy";
-import type { Bar, IndicatorSeries } from "./types";
+import { evaluateBuySetup, evaluateExitSignals, marketRegimePasses } from "../src/strategy";
+import type { Bar, IndicatorSeries } from "../src/types";
 
 function makeBars(count: number): Bar[] {
   return Array.from({ length: count }, (_, index) => ({

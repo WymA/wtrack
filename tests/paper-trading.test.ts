@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PaperTrading } from "./paper-trading";
-import type { Env, StockAlert } from "./types";
+import { PaperTrading } from "../src/paper-trading";
+import type { Env, StockAlert } from "../src/types";
 
 type MockOrder = {
   id: string;

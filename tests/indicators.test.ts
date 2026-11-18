@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateEma } from "./indicators";
+import { calculateEma } from "../src/indicators";
 
 describe("calculateEma", () => {
   it("uses standard exponential smoothing", () => {
