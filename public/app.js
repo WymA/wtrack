@@ -2,14 +2,10 @@ const rowsElement = document.querySelector("#ticker-rows");
 const signalRowsElement = document.querySelector("#signal-rows");
 const signalsMessageElement = document.querySelector("#signals-message");
 const messageElement = document.querySelector("#data-message");
-const themeToggle = document.querySelector("#theme-toggle");
-const systemThemeButton = document.querySelector("#system-theme-button");
-const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
 const scheduledRunStatusElement = document.querySelector("#scheduled-run-status");
 const scheduledRunTimeElement = document.querySelector("#scheduled-run-time");
 const scheduledRunDetailElement = document.querySelector("#scheduled-run-detail");
 const paperTradingStatusElement = document.querySelector("#paper-trading-status");
-let followsSystemTheme = true;
 
 const money = new Intl.NumberFormat(undefined, {
   style: "currency",
@@ -29,18 +25,6 @@ function displayChange(value, formatter) {
 
 function displayPercent(value) {
   return displayChange(value, (number) => `${number.toFixed(2)}%`);
-}
-
-function setTheme(theme) {
-  const isDark = theme === "dark";
-  document.documentElement.setAttribute("data-bs-theme", isDark ? "dark" : "light");
-  const label = isDark ? "Switch to light mode" : "Switch to dark mode";
-  themeToggle.setAttribute("aria-label", label);
-  themeToggle.title = label;
-}
-
-function applySystemTheme() {
-  setTheme(systemColorScheme.matches ? "dark" : "light");
 }
 
 function addCell(row, value) {
@@ -220,20 +204,5 @@ async function loadDashboard() {
   }
 }
 
-themeToggle.addEventListener("click", () => {
-  followsSystemTheme = false;
-  systemThemeButton.hidden = false;
-  const currentTheme = document.documentElement.getAttribute("data-bs-theme");
-  setTheme(currentTheme === "dark" ? "light" : "dark");
-});
-systemThemeButton.addEventListener("click", () => {
-  followsSystemTheme = true;
-  systemThemeButton.hidden = true;
-  applySystemTheme();
-});
-systemColorScheme.addEventListener("change", () => {
-  if (followsSystemTheme) applySystemTheme();
-});
-setTheme(document.documentElement.getAttribute("data-bs-theme") ?? "light");
 void loadDashboard();
 window.setInterval(loadDashboard, 5 * 60 * 1000);

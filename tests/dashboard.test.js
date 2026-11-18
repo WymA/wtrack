@@ -34,6 +34,65 @@ function createDashboard() {
   return { renderSnapshot: context.renderSnapshot, elements };
 }
 
+it("shares the WTrack header and keeps the selected theme when navigating to Admin", () => {
+  const script = readFileSync(new URL("../public/site-header.js", import.meta.url), "utf8");
+  const preferences = new Map();
+  for (const page of ["index.html", "admin.html"]) {
+    const markup = readFileSync(new URL(`../public/${page}`, import.meta.url), "utf8");
+    expect(markup).toContain("<title>WTrack</title>");
+    expect(markup).toContain('src="/site-header.js"');
+    expect(markup).toContain('id="site-header"');
+    expect(markup).toContain("icon_names=dark_mode,home,light_mode,settings");
+  }
+
+  function loadHeader(pathname) {
+    const theme = {};
+    const system = { matches: false, addEventListener: vi.fn() };
+    const icon = {};
+    const home = { getAttribute: () => "/", setAttribute: vi.fn() };
+    const admin = { getAttribute: () => "/admin", setAttribute: vi.fn() };
+    const toggle = { querySelector: () => icon, setAttribute: vi.fn(), addEventListener: vi.fn() };
+    const reset = { addEventListener: vi.fn() };
+    const header = {
+      querySelector: (selector) => selector === "#theme-toggle" ? toggle : reset,
+      querySelectorAll: () => [home, admin]
+    };
+    runInContext(script, createContext({
+      console,
+      document: {
+        documentElement: { setAttribute(name, value) { theme[name] = value; } },
+        addEventListener: (_, listener) => listener(),
+        querySelector: () => header
+      },
+      window: {
+        location: { pathname },
+        matchMedia: () => system,
+        localStorage: {
+          getItem: (key) => preferences.get(key),
+          setItem: (key, value) => preferences.set(key, value),
+          removeItem: (key) => preferences.delete(key)
+        }
+      }
+    }));
+    return { theme, icon, home, admin, toggle, reset };
+  }
+
+  const homePage = loadHeader("/");
+  expect(homePage.home.setAttribute).toHaveBeenCalledWith("aria-current", "page");
+  expect(homePage.icon.textContent).toBe("dark_mode");
+  homePage.toggle.addEventListener.mock.calls[0][1]();
+  expect(homePage.theme["data-bs-theme"]).toBe("dark");
+  expect(homePage.icon.textContent).toBe("light_mode");
+
+  const adminPage = loadHeader("/admin");
+  expect(adminPage.admin.setAttribute).toHaveBeenCalledWith("aria-current", "page");
+  expect(adminPage.theme["data-bs-theme"]).toBe("dark");
+  expect(adminPage.toggle.setAttribute).toHaveBeenLastCalledWith("aria-label", "Switch to light mode");
+  adminPage.reset.addEventListener.mock.calls[0][1]();
+  expect(adminPage.theme["data-bs-theme"]).toBe("light");
+  expect(adminPage.reset.hidden).toBe(true);
+});
+
 describe("dashboard watchlist rendering", () => {
   it("places Signal before Date in Triggered Signals and omits Signal from Watchlist", () => {
     const markup = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");

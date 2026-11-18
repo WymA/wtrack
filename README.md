@@ -98,6 +98,7 @@ Set `time` to a weekday timestamp at 16:30 in `America/New_York` so the Worker p
 ## Commands
 
 Worker source lives in [src/](./src), and Vitest suites live in [tests/](./tests).
+Home and Admin share [`public/site-header.js`](./public/site-header.js) for navigation and the theme preference, and use Google Material Symbols for the header icons.
 
 - `pnpm dev` — run the local Worker.
 - `pnpm cf-typegen` — regenerate Cloudflare binding types after changing `wrangler.toml`.
