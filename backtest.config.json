@@ -1,0 +1,35 @@
+{
+  "strategy": {
+    "setups": ["Setup A", "Setup B", "Setup C"],
+    "watchlist": ["AAPL", "MSFT", "NVDA"]
+  },
+  "dateWindow": {
+    "start": "2022-01-03",
+    "end": "today"
+  },
+  "portfolio": {
+    "startingCapital": 100000,
+    "maxOpenPositions": 5,
+    "sizing": {
+      "type": "risk-percent",
+      "value": 1
+    }
+  },
+  "stops": {
+    "initial": {
+      "type": "swing-low",
+      "lookback": 5
+    },
+    "leftSideFailurePercent": 3
+  },
+  "profitTaking": {
+    "type": "risk-multiple",
+    "value": 2,
+    "partialPercent": 50
+  },
+  "trailingExitEma": "ema50",
+  "costs": {
+    "slippagePercent": 0.1,
+    "commissionPerOrder": 0
+  }
+}

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WTrack Backtester</title>
+  <style>
+    :root { color-scheme: light dark; font: 15px/1.5 system-ui, sans-serif; --bg:#f4f6fa; --panel:#fff; --text:#192331; --muted:#617083; --line:#dce2eb; --accent:#2865ce; --good:#147a4c; --bad:#c33d47; }
+    :root[data-theme="dark"] { color-scheme: dark; --bg:#10151d; --panel:#19222e; --text:#e6edf5; --muted:#a6b3c2; --line:#344253; --accent:#78a9ff; --good:#68d5a1; --bad:#ff858b; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#10151d; --panel:#19222e; --text:#e6edf5; --muted:#a6b3c2; --line:#344253; --accent:#78a9ff; --good:#68d5a1; --bad:#ff858b; } }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); }
+    main { max-width:1200px; margin:auto; padding:24px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    h1 { margin:0; font-size:1.55rem; }
+    h2 { margin:0 0 12px; font-size:1.1rem; }
+    p { color:var(--muted); }
+    section { margin-top:20px; padding:18px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+    textarea { display:block; width:100%; min-height:390px; padding:14px; resize:vertical; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); font:13px/1.55 ui-monospace,Consolas,monospace; }
+    button { border:1px solid var(--line); border-radius:7px; padding:9px 14px; background:var(--panel); color:var(--text); cursor:pointer; font:inherit; }
+    button.primary { border-color:var(--accent); background:var(--accent); color:#fff; font-weight:650; }
+    button:disabled { opacity:.55; cursor:wait; }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; align-items:center; }
+    #status { min-height:1.5em; color:var(--muted); }
+    #status.error { color:var(--bad); }
+    .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+    .metric { padding:12px; border-radius:8px; background:var(--bg); }
+    .metric span { display:block; color:var(--muted); font-size:.8rem; }
+    .metric strong { display:block; margin-top:4px; font-size:1.15rem; overflow-wrap:anywhere; }
+    .scroll { overflow:auto; }
+    table { width:100%; border-collapse:collapse; white-space:nowrap; }
+    th,td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:left; }
+    th { color:var(--muted); font-size:.8rem; }
+    .positive { color:var(--good); } .negative { color:var(--bad); }
+    .small { font-size:.85rem; color:var(--muted); }
+    details { margin:12px 0; border:1px solid var(--line); border-radius:8px; }
+    summary { padding:10px 12px; cursor:pointer; font-weight:600; }
+    .help { padding:0 14px 12px; }
+    .help ul { margin:8px 0; padding-left:20px; }
+    .help li { margin:6px 0; }
+    @media(max-width:600px) { main { padding:14px; } section { padding:13px; } header { align-items:flex-start; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div><h1>WTrack Backtester</h1><p class="small">Local-only historical simulation · split-adjusted Alpaca IEX daily bars</p></div>
+      <button id="theme" type="button" aria-label="Toggle color theme">Toggle theme</button>
+    </header>
+    <section>
+      <h2>Configuration override</h2>
+      <p class="small">Edit the JSON for this run. Save persistent defaults in <code>backtest.config.json</code>; the local cache is stored separately.</p>
+      <details>
+        <summary>Configuration fields, choices, and units</summary>
+        <div class="help small">
+          <ul>
+            <li><code>strategy.setups</code>: choose any combination of <code>Setup A</code>, <code>Setup B</code>, and <code>Setup C</code>. A/B are close-confirmed right-side entries; C is an intraday support touch. <code>strategy.watchlist</code> is a list of 1–200 unique uppercase ticker symbols; SPY is added automatically for the regime filter.</li>
+            <li><code>dateWindow.start</code> and <code>dateWindow.end</code>: ISO dates in <code>YYYY-MM-DD</code> form. The end may be <code>today</code> (New York date); an in-progress daily bar is excluded until 4 p.m. New York time. The cache fetches 600 calendar days before the start and requires at least 300 prior daily bars.</li>
+            <li><code>portfolio.startingCapital</code> and <code>portfolio.sizing.value</code> are USD amounts unless noted. <code>maxOpenPositions</code> is a count. Sizing types: <code>risk-percent</code> risks that percent of current equity at the initial stop; <code>fixed-dollar</code> sets a per-position notional target; <code>equity-percent</code> sets notional as a percent of current equity. Entries are capped by available cash.</li>
+            <li><code>stops.initial.type</code>: <code>swing-low</code> uses the minimum low over <code>lookback</code> daily bars; <code>fixed-percent</code> sets a percent below entry; <code>ema-buffer</code> sets a percent below the chosen <code>ema20</code>, <code>ema50</code>, <code>ema100</code>, or <code>ema200</code> on the signal day. <code>leftSideFailurePercent</code> sets Setup C's hard stop below touched support; the separate close-confirmed failure check applies only on entry day and the following session.</li>
+            <li><code>profitTaking.type</code>: <code>fixed-percent</code> is a percent above fill price; <code>risk-multiple</code> is a multiple of the entry-to-initial-stop distance. <code>partialPercent</code> (1–100%) is the share of the original position sold at the target; 100% exits fully.</li>
+            <li><code>trailingExitEma</code>: <code>disabled</code>, <code>ema50</code>, or <code>ema100</code>. The selected standard exit requires two consecutive daily closes below that EMA. For Setup C, standard exits are armed only after a close above the 50 EMA.</li>
+            <li><code>costs.slippagePercent</code> is adverse slippage in percent on each side; <code>commissionPerOrder</code> is USD per order. A partial trim is a separate sell order and incurs another commission.</li>
+          </ul>
+          Right-side close signals enter at the next session's open. Setup C's daily high cannot trigger a target on its intraday entry bar because daily OHLC data cannot establish whether the high came before or after the touch. When a stop and target are both crossed in one later bar, the stop is assumed first.
+        </div>
+      </details>
+      <textarea id="config" spellcheck="false" aria-label="Backtest configuration"></textarea>
+      <div class="actions">
+        <button id="run" class="primary" type="button">Run backtest</button>
+        <button id="refresh" type="button">Refresh cached bars</button>
+        <button id="reload" type="button">Reload config file</button>
+        <span id="status" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+    <section>
+      <h2>Market-data cache</h2>
+      <div id="cache" class="small">Loading cache status…</div>
+    </section>
+    <section id="summary" hidden>
+      <h2>Performance</h2>
+      <div id="metrics" class="metrics"></div>
+      <h2 style="margin-top:20px">Completed trades</h2>
+      <div class="scroll"><table><thead><tr><th>Ticker</th><th>Setup</th><th>Entry</th><th>Entry price</th><th>Exit</th><th>Exit price</th><th>Shares</th><th>P/L</th><th>Return</th><th>Reason</th></tr></thead><tbody id="trades"></tbody></table></div>
+      <h2 style="margin-top:20px">Open positions</h2>
+      <div class="scroll"><table><thead><tr><th>Ticker</th><th>Setup</th><th>Entry</th><th>Entry price</th><th>Last close</th><th>Remaining shares</th><th>Unrealized P/L</th></tr></thead><tbody id="open-trades"></tbody></table></div>
+    </section>
+  </main>
+  <script>
+    const configField = document.querySelector("#config");
+    const statusField = document.querySelector("#status");
+    const money = (value) => new Intl.NumberFormat(undefined, { style:"currency", currency:"USD" }).format(value);
+    const percent = (value) => `${value.toFixed(2)}%`;
+    const safe = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
+    async function api(path, body) {
+      const response = await fetch(path, body ? { method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify(body) } : {});
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error || `Request failed (${response.status})`);
+      return value;
+    }
+    function showStatus(message, error = false) { statusField.textContent = message; statusField.classList.toggle("error", error); }
+    async function reloadConfig() {
+      const { config } = await api("/api/config");
+      configField.value = JSON.stringify(config, null, 2);
+    }
+    async function loadCache() {
+      const { tickers } = await api("/api/cache");
+      document.querySelector("#cache").innerHTML = tickers.length
+        ? `<div class="scroll"><table><thead><tr><th>Ticker</th><th>Bars</th><th>From</th><th>Through</th></tr></thead><tbody>${tickers.map((item) => `<tr><td>${safe(item.ticker)}</td><td>${item.bars}</td><td>${safe(item.from)}</td><td>${safe(item.through)}</td></tr>`).join("")}</tbody></table></div>`
+        : "No bars cached yet.";
+    }
+    function renderResult(result) {
+      const { metrics } = result;
+      const cards = [
+        ["Starting capital", money(metrics.startingCapital)],
+        ["Ending equity", money(metrics.endingEquity)],
+        ["Net profit", money(metrics.netProfit), metrics.netProfit >= 0],
+        ["Total return", percent(metrics.returnPercent), metrics.returnPercent >= 0],
+        ["Closed trades", metrics.closedTrades],
+        ["Win rate", percent(metrics.winRatePercent)],
+        ["Profit factor", metrics.profitFactor === null ? "∞" : metrics.profitFactor.toFixed(2)],
+        ["Max drawdown", percent(metrics.maxDrawdownPercent), false],
+        ["Open positions", metrics.openPositions]
+      ];
+      document.querySelector("#metrics").innerHTML = cards.map(([label, value, positive]) =>
+        `<div class="metric"><span>${safe(label)}</span><strong class="${positive === undefined ? "" : positive ? "positive" : "negative"}">${safe(value)}</strong></div>`
+      ).join("");
+      document.querySelector("#trades").innerHTML = result.trades.length
+        ? result.trades.map((trade) => `<tr><td>${safe(trade.ticker)}</td><td>${safe(trade.setup)}</td><td>${safe(trade.entryDate)}</td><td>${money(trade.entryPrice)}</td><td>${safe(trade.exitDate)}</td><td>${money(trade.exitPrice)}</td><td>${trade.shares.toFixed(3)}</td><td class="${trade.pnl >= 0 ? "positive" : "negative"}">${money(trade.pnl)}</td><td>${percent(trade.returnPercent)}</td><td>${safe(trade.exitReason)}</td></tr>`).join("")
+        : '<tr><td colspan="10" class="small">No completed trades in this date range.</td></tr>';
+      document.querySelector("#open-trades").innerHTML = result.openTrades.length
+        ? result.openTrades.map((trade) => `<tr><td>${safe(trade.ticker)}</td><td>${safe(trade.setup)}</td><td>${safe(trade.entryDate)}</td><td>${money(trade.entryPrice)}</td><td>${money(trade.lastClose)}</td><td>${trade.remainingShares.toFixed(3)}</td><td class="${trade.unrealizedPnl >= 0 ? "positive" : "negative"}">${money(trade.unrealizedPnl)}</td></tr>`).join("")
+        : '<tr><td colspan="7" class="small">No positions remain open.</td></tr>';
+      document.querySelector("#summary").hidden = false;
+    }
+    async function withBusy(button, message, action) {
+      button.disabled = true; showStatus(message);
+      try { await action(); }
+      catch (error) { showStatus(error instanceof Error ? error.message : "Request failed.", true); }
+      finally { button.disabled = false; }
+    }
+    document.querySelector("#run").addEventListener("click", (event) => withBusy(event.currentTarget, "Updating cache and simulating…", async () => {
+      const config = JSON.parse(configField.value);
+      const { result } = await api("/api/run", { config });
+      renderResult(result);
+      await loadCache();
+      showStatus("Backtest complete.");
+    }));
+    document.querySelector("#refresh").addEventListener("click", (event) => withBusy(event.currentTarget, "Refreshing configured tickers…", async () => {
+      const config = JSON.parse(configField.value);
+      const { refreshed } = await api("/api/refresh", { config });
+      await loadCache();
+      showStatus(`Cache refreshed. Bars fetched: ${Object.values(refreshed).reduce((sum, count) => sum + count, 0)}.`);
+    }));
+    document.querySelector("#reload").addEventListener("click", (event) => withBusy(event.currentTarget, "Loading configuration…", async () => {
+      await reloadConfig(); showStatus("Configuration reloaded.");
+    }));
+    document.querySelector("#theme").addEventListener("click", () => {
+      const root = document.documentElement;
+      const next = root.dataset.theme === "dark" ? "light" : "dark";
+      root.dataset.theme = next; localStorage.setItem("wtrack-backtest-theme", next);
+    });
+    const savedTheme = localStorage.getItem("wtrack-backtest-theme");
+    if (savedTheme === "light" || savedTheme === "dark") document.documentElement.dataset.theme = savedTheme;
+    Promise.all([reloadConfig(), loadCache()]).catch((error) => showStatus(error.message, true));
+  </script>
+</body>
+</html>
