@@ -41,6 +41,10 @@
   padding-top: 1.5rem;
 }
 
+.dashboard-header {
+  min-height: 4rem;
+}
+
 .theme-toggle {
   align-items: center;
   display: inline-flex;

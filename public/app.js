@@ -51,45 +51,39 @@ function addCell(row, value) {
 }
 
 function renderSignals(cell, signals) {
-  if (!Array.isArray(signals) || signals.length === 0) {
-    cell.textContent = "—";
-    return;
-  }
-
   for (const signal of signals) {
     const badge = document.createElement("span");
     badge.className = signal.startsWith("Exit") ? "signal-badge exit-badge" : "signal-badge entry-badge";
-    badge.textContent = signal;
+    badge.textContent = signal
+      .replace(/^Exit Tier ([23])$/, "Exit-$1")
+      .replace(/^Setup ([ABC])$/, "Setup-$1");
     cell.append(badge);
   }
 }
 
-function renderTickers(tickers, target, signalsOnly = false) {
+function renderTickers(tickers, target, { showSignal = false } = {}) {
   target.replaceChildren();
 
   for (const ticker of tickers) {
     const row = document.createElement("tr");
-    const signals = Array.isArray(ticker.signals) ? ticker.signals : [];
-    if (signals.some((signal) => signal.startsWith("Setup"))) {
-      row.classList.add("entry-row");
-    } else if (signals.some((signal) => signal.startsWith("Exit"))) {
-      row.classList.add("exit-row");
-    }
-
     addCell(row, ticker.ticker);
+    if (showSignal) {
+      const signals = ticker.signals;
+      if (signals.some((signal) => signal.startsWith("Setup"))) {
+        row.classList.add("entry-row");
+      } else if (signals.some((signal) => signal.startsWith("Exit"))) {
+        row.classList.add("exit-row");
+      }
+      renderSignals(addCell(row, ""), signals);
+    }
     addCell(row, ticker.asOfDate ?? "—");
     addCell(row, displayNumber(ticker.close));
     addCell(row, displayChange(ticker.change, (number) => money.format(number)));
     addCell(row, displayPercent(ticker.changePercent));
-    if (!signalsOnly) {
-      addCell(row, displayNumber(ticker.ema20));
-      addCell(row, displayNumber(ticker.ema50));
-      addCell(row, displayNumber(ticker.ema100));
-      addCell(row, displayNumber(ticker.ema200));
-    }
-
-    const signalCell = addCell(row, "");
-    renderSignals(signalCell, signals);
+    addCell(row, displayNumber(ticker.ema20));
+    addCell(row, displayNumber(ticker.ema50));
+    addCell(row, displayNumber(ticker.ema100));
+    addCell(row, displayNumber(ticker.ema200));
     target.append(row);
   }
 }
@@ -140,7 +134,7 @@ function renderSnapshot(payload) {
     paperEnabled === true ? "text-success-emphasis" : paperEnabled === false ? "text-danger-emphasis" : "text-body-secondary"
   }`;
   paperTradingStatusElement.textContent = paperEnabled === true
-    ? "Paper trading: ON · Setup A and Setup B · scheduled scans only"
+    ? "Paper trading: ON · Setup-A and Setup-B · scheduled scans only"
     : paperEnabled === false
       ? "Paper trading: OFF · signals only"
       : "Paper trading: status unavailable.";
@@ -149,11 +143,19 @@ function renderSnapshot(payload) {
   const savedTickers = new Map(
     (Array.isArray(snapshot?.tickers) ? snapshot.tickers : []).map((ticker) => [ticker.ticker, ticker])
   );
-  const tickers = watchlist.map((ticker) => savedTickers.get(ticker) ?? { ticker });
-  const triggered = tickers.filter((ticker) => Array.isArray(ticker.signals) && ticker.signals.length > 0);
+  const triggered = [];
+  const remaining = [];
+  for (const ticker of watchlist) {
+    const saved = savedTickers.get(ticker) ?? { ticker };
+    if (Array.isArray(saved.signals) && saved.signals.length > 0) {
+      triggered.push(saved);
+    } else {
+      remaining.push(saved);
+    }
+  }
   renderScheduledRun(payload.lastScheduledRun);
-  renderTickers(triggered, signalRowsElement, true);
-  renderTickers(tickers, rowsElement);
+  renderTickers(triggered, signalRowsElement, { showSignal: true });
+  renderTickers(remaining, rowsElement);
   document.querySelector("#ticker-count").textContent = String(watchlist.length);
   signalsMessageElement.textContent = !snapshot
     ? "Waiting for the first scan."
@@ -190,9 +192,11 @@ function renderSnapshot(payload) {
     `EMA 200 ${displayNumber(snapshot.marketRegime.spy.ema200)}`;
   document.querySelector("#updated-at").textContent =
     `Saved ${new Date(snapshot.scannedAt).toLocaleString()}`;
-  messageElement.textContent = tickers.length
-    ? `${tickers.length} ticker${tickers.length === 1 ? "" : "s"} in the watchlist.`
-    : "No watchlist tickers are configured.";
+  messageElement.textContent = remaining.length
+    ? `${remaining.length} ticker${remaining.length === 1 ? "" : "s"} without signals.`
+    : triggered.length
+      ? "All watchlist tickers have signals and are shown above."
+      : "No watchlist tickers are configured.";
 }
 
 async function loadDashboard() {
