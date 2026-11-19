@@ -2,7 +2,7 @@
   "strategy": {
     "setups": ["Setup A", "Setup B", "Setup C", "Setup D"],
     "momentumStop": "fixed-percent",
-    "watchlist": ["AAPL", "GOOD", "NVDA"]
+    "watchlist": ["AAPL", "GOOG", "NVDA"]
   },
   "dateWindow": {
     "start": "2022-01-03",
