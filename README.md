@@ -23,15 +23,9 @@ Edit [`public/watchlist.json`](./public/watchlist.json) to change the stock watc
 
 ## Backtest
 
-The local-only backtester simulates trades using split-adjusted Alpaca IEX daily bars and never submits orders. Configure its defaults in [`backtest.config.json`](./backtest.config.json). It reads Alpaca credentials from `.dev.vars` and stores its SQLite cache in the ignored `backtest-data/` directory.
+Choose **Backtest** in the top menu, or open `/admin/backtest.html`. It runs inside WTrack with `pnpm dev` and on the deployed Worker; no separate server is needed. It simulates trades using split-adjusted Alpaca IEX daily bars and never submits orders.
 
-Run:
-
-```sh
-pnpm backtest
-```
-
-Open the URL printed in the terminal (by default `http://127.0.0.1:8788`). The UI lets you edit settings for a run, run the simulation, and refresh cached bars.
+Configure defaults in [`backtest.config.json`](./backtest.config.json), or override settings in the UI for a single run. History is cached in a dedicated SQLite-backed Durable Object; local and deployed caches are separate. See [`backtest.md`](./backtest.md) for configuration and execution assumptions.
 
 ## Deploy
 
@@ -44,7 +38,7 @@ pnpm exec wrangler secret put ALPACA_API_SECRET_KEY
 
 Notifications are optional. Set `WEBHOOK_URL` for a webhook, and set `TELEGRAM_CHAT_ID` when using Telegram.
 
-Paper trading is off by default. Before enabling it, protect `/admin` and `/admin/*` with Cloudflare Access; the Worker does not authenticate these routes itself.
+Paper trading is off by default. Protect `/admin` and `/admin/*`, including Backtest, with Cloudflare Access; the Worker does not authenticate these routes itself.
 
 If this repository is connected to Cloudflare Workers through the GitHub connector/deployment integration, pushes to its configured branch deploy automatically; no manual deployment is needed. Otherwise, deploy with:
 

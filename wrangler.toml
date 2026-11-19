@@ -13,9 +13,17 @@ crons = ["30 20 * * 1-5", "30 21 * * 1-5", "15 14 * * 1-5", "15 15 * * 1-5"]
 name = "PAPER_TRADING"
 class_name = "PaperTrading"
 
+[[durable_objects.bindings]]
+name = "BACKTEST"
+class_name = "Backtest"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["PaperTrading"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Backtest"]
 
 [[kv_namespaces]]
 binding = "WTRACK_KV"

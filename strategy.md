@@ -1,6 +1,7 @@
 # Strategy v1
 
 Daily, long-only EMA signal rules (alert-only; no automated order execution or shorting).
+The pure indicators and setup rules are shared by WTrack's signal scanner and integrated backtester from `strategy-core/`.
 
 ## 1. Indicators & Definitions
 - **Timeframe:** Daily (`1D`) OHLC candles (minimum 300 bars).

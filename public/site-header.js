@@ -31,17 +31,17 @@ document.addEventListener("DOMContentLoaded", () => {
         <span class="material-symbols-outlined" aria-hidden="true">settings</span>
         Admin
       </a>
+      <a class="btn btn-outline-primary" href="/admin/backtest.html">Backtest</a>
     </nav>
     <button class="btn btn-outline-secondary theme-toggle" type="button" id="theme-toggle">
       <span class="material-symbols-outlined" aria-hidden="true"></span>
     </button>
   `;
 
-  const path = window.location.pathname.replace(/\/$/, "") || "/";
+  const path = window.location.pathname.replace(/\/index\.html$/, "").replace(/\.html$/, "").replace(/\/$/, "") || "/";
   for (const link of header.querySelectorAll("nav a")) {
-    const href = link.getAttribute("href");
-    const staticPath = href === "/" ? "/index.html" : `${href}.html`;
-    if (path === href || path === staticPath) link.setAttribute("aria-current", "page");
+    const href = link.getAttribute("href").replace(/\.html$/, "");
+    if (path === href) link.setAttribute("aria-current", "page");
   }
 
   const themeToggle = header.querySelector("#theme-toggle");

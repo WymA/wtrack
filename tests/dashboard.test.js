@@ -34,10 +34,10 @@ function createDashboard() {
   return { renderSnapshot: context.renderSnapshot, elements };
 }
 
-it("shares the WTrack header and keeps the selected theme when navigating to Admin", () => {
+it("shares the top menu and theme across Home, Admin, and Backtest", () => {
   const script = readFileSync(new URL("../public/site-header.js", import.meta.url), "utf8");
   const preferences = new Map();
-  for (const page of ["index.html", "admin.html"]) {
+  for (const page of ["index.html", "admin/index.html", "admin/backtest.html"]) {
     const markup = readFileSync(new URL(`../public/${page}`, import.meta.url), "utf8");
     expect(markup).toContain("<title>WTrack</title>");
     expect(markup).toContain('src="/site-header.js"');
@@ -51,10 +51,11 @@ it("shares the WTrack header and keeps the selected theme when navigating to Adm
     const icon = {};
     const home = { getAttribute: () => "/", setAttribute: vi.fn() };
     const admin = { getAttribute: () => "/admin", setAttribute: vi.fn() };
+    const backtest = { getAttribute: () => "/admin/backtest.html", setAttribute: vi.fn() };
     const toggle = { querySelector: () => icon, setAttribute: vi.fn(), addEventListener: vi.fn() };
     const header = {
       querySelector: (selector) => selector === "#theme-toggle" ? toggle : null,
-      querySelectorAll: () => [home, admin]
+      querySelectorAll: () => [home, admin, backtest]
     };
     runInContext(script, createContext({
       console,
@@ -72,7 +73,7 @@ it("shares the WTrack header and keeps the selected theme when navigating to Adm
         }
       }
     }));
-    return { theme, icon, home, admin, toggle, markup: header.innerHTML };
+    return { theme, icon, home, admin, backtest, toggle, markup: header.innerHTML };
   }
 
   const homePage = loadHeader("/");
@@ -90,6 +91,15 @@ it("shares the WTrack header and keeps the selected theme when navigating to Adm
   adminPage.toggle.addEventListener.mock.calls[0][1]();
   expect(adminPage.theme["data-bs-theme"]).toBe("light");
   expect(adminPage.icon.textContent).toBe("dark_mode");
+  for (const path of ["/admin/", "/admin/index.html"]) {
+    expect(loadHeader(path).admin.setAttribute).toHaveBeenCalledWith("aria-current", "page");
+  }
+  for (const path of ["/admin/backtest.html", "/admin/backtest"]) {
+    const page = loadHeader(path);
+    expect(page.markup).toContain('href="/admin/backtest.html"');
+    expect(page.backtest.setAttribute).toHaveBeenCalledWith("aria-current", "page");
+    expect(page.admin.setAttribute).not.toHaveBeenCalled();
+  }
 });
 
 describe("dashboard watchlist rendering", () => {

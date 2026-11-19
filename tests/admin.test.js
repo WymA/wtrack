@@ -22,8 +22,28 @@ function createAdmin(fetcher) {
     createElement: element
   };
   const context = createContext({ document, fetch: fetcher });
-  runInContext(readFileSync(new URL("../public/admin.js", import.meta.url), "utf8"), context);
+  runInContext(readFileSync(new URL("../public/admin/admin.js", import.meta.url), "utf8"), context);
   return elements;
+}
+
+function createBacktestUI(fetcher) {
+  const markup = readFileSync(new URL("../public/admin/backtest.html", import.meta.url), "utf8");
+  const script = markup.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const elements = new Map();
+  const document = {
+    querySelector(selector) {
+      if (!elements.has(selector)) {
+        elements.set(selector, {
+          classList: { toggle: vi.fn() },
+          addEventListener(name, callback) { this[name] = callback; }
+        });
+      }
+      return elements.get(selector);
+    }
+  };
+  const context = createContext({ document, fetch: fetcher });
+  runInContext(script, context);
+  return { elements, markup, renderResult: context.renderResult };
 }
 
 it("loads and updates the paper trading switch", async () => {
@@ -66,4 +86,54 @@ it("renders stored order details as text and reports refresh failures", async ()
   elements.get("#orders-refresh").click();
   await vi.waitFor(() => expect(elements.get("#orders-status").textContent).toContain("500"));
   expect(elements.get("#order-rows").children).toHaveLength(0);
+});
+
+it("loads and runs backtests through the WTrack server without a local launcher", async () => {
+  const fetcher = vi.fn(async (path) => {
+    if (path === "/admin/backtest/config") return Response.json({ config: { strategy: { watchlist: ["AAPL"] } } });
+    if (path === "/admin/backtest/cache") return Response.json({ tickers: [] });
+    if (path === "/admin/backtest/run") return Response.json({ error: "Not enough historical bars." }, { status: 502 });
+    throw new Error(`Unexpected request: ${path}`);
+  });
+  const { elements, markup } = createBacktestUI(fetcher);
+  await vi.waitFor(() => expect(elements.get("#config").value).toContain("AAPL"));
+  expect(fetcher.mock.calls.map(([path]) => path)).toEqual(["/admin/backtest/config", "/admin/backtest/cache"]);
+  expect(markup).not.toContain("local-launch");
+  expect(markup).not.toContain("127.0.0.1");
+  await elements.get("#run").click({ currentTarget: elements.get("#run") });
+  expect(elements.get("#status").textContent).toBe("Not enough historical bars.");
+  expect(fetcher.mock.calls[2][1].method).toBe("POST");
+  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({ config: { strategy: { watchlist: ["AAPL"] } } });
+  expect(elements.get("#run").disabled).toBe(false);
+  expect(elements.get("#refresh").disabled).toBe(false);
+});
+
+it.each([
+  [10, "10.00%", "positive"],
+  [-5, "-5.00%", "negative"],
+  [null, "Unavailable", ""]
+])("renders the simulated period and VOO return of %s in Performance", (returnPercent, expected, color) => {
+  const { elements, renderResult } = createBacktestUI(() => new Promise(() => {}));
+  const result = {
+    config: { dateWindow: { start: "2025-01-01", end: "2025-01-12" } },
+    period: { start: "2025-01-02", end: "2025-01-10", tradingDays: 6 },
+    benchmark: { ticker: "VOO", returnPercent },
+    metrics: {
+      startingCapital: 1000, endingEquity: 1000, netProfit: 0, returnPercent: 0,
+      closedTrades: 0, winRatePercent: 0, profitFactor: 0, maxDrawdownPercent: 0, openPositions: 0
+    },
+    trades: [], openTrades: []
+  };
+  renderResult(result);
+  expect(elements.get("#performance-period").textContent).toBe(
+    "Period: 2025-01-02 to 2025-01-10 (6 trading sessions). Requested: 2025-01-01 to 2025-01-12."
+  );
+  expect(elements.get("#metrics").innerHTML).toContain(
+    `<span>VOO buy-and-hold</span><strong class="${color}">${expected}</strong>`
+  );
+  expect(elements.get("#summary").hidden).toBe(false);
+  renderResult({ ...result, period: { start: null, end: null, tradingDays: 0 } });
+  expect(elements.get("#performance-period").textContent).toBe(
+    "Period: 2025-01-01 to 2025-01-12. No completed trading sessions."
+  );
 });

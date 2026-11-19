@@ -16,13 +16,18 @@ function createEnv(values: Map<string, string>, watchlist: unknown = []) {
     }
   };
   const assetsFetch = vi.fn(async (request: Request) => {
-    if (new URL(request.url).pathname === "/admin") return new Response("Admin page");
+    if (new URL(request.url).pathname === "/admin/") return new Response("Admin page");
     if (new URL(request.url).pathname === "/watchlist.json") return Response.json({ watchlist });
     return new Response("Not found", { status: 404 });
   });
+  const backtestFetch = vi.fn(async () => Response.json({ result: { simulated: true } }));
   const env = {
     WTRACK_KV: kv,
     ASSETS: { fetch: assetsFetch },
+    BACKTEST: {
+      idFromName: () => ({}),
+      get: () => ({ fetch: backtestFetch })
+    },
     PAPER_TRADING: {
       idFromName: () => ({}),
       get: () => ({
@@ -40,10 +45,41 @@ function createEnv(values: Map<string, string>, watchlist: unknown = []) {
     }
   } as unknown as Env;
 
-  return { env, assetsFetch, kv };
+  return { env, assetsFetch, kv, backtestFetch };
 }
 
 describe("admin actions", () => {
+  it("forwards Backtest requests to the integrated service without invoking paper trading", async () => {
+    const { env, backtestFetch } = createEnv(new Map());
+    const request = new Request("https://wtrack.example/admin/backtest/run", {
+      method: "POST", headers: { origin: "https://wtrack.example" }, body: "{}"
+    });
+    const response = await worker.fetch(request, env);
+    expect(response.status).toBe(200);
+    expect(backtestFetch).toHaveBeenCalledWith(request);
+    expect(await response.json()).toEqual({ result: { simulated: true } });
+  });
+
+  it("validates Backtest API routes, methods, and origin before dispatch", async () => {
+    const { env, backtestFetch } = createEnv(new Map());
+    for (const [action, method, origin, status] of [
+      ["run", "GET", "https://wtrack.example", 405],
+      ["config", "POST", "https://wtrack.example", 405],
+      ["run", "POST", "https://other.example", 403],
+      ["unknown", "GET", "https://wtrack.example", 404]
+    ] as const) {
+      const response = await worker.fetch(new Request(`https://wtrack.example/admin/backtest/${action}`, {
+        method, headers: { origin }
+      }), env);
+      expect(response.status).toBe(status);
+    }
+    expect(backtestFetch).not.toHaveBeenCalled();
+    for (const action of ["config", "cache"]) {
+      expect((await worker.fetch(new Request(`https://wtrack.example/admin/backtest/${action}`), env)).status).toBe(200);
+    }
+    expect(backtestFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("serves saved orders only through the admin GET route", async () => {
     const { env } = createEnv(new Map());
     const response = await worker.fetch(new Request("https://wtrack.example/admin/orders"), env);
@@ -225,14 +261,15 @@ describe("admin actions", () => {
     expect(assetsFetch).toHaveBeenCalledTimes(3);
   });
 
-  it("serves the admin page at /admin", async () => {
-    const { env } = createEnv(new Map());
-    const request = new Request("https://wtrack.example/admin");
+  it.each(["/admin", "/admin/"])("serves the admin page at %s without an index.html redirect", async (path) => {
+    const { env, assetsFetch } = createEnv(new Map());
+    const request = new Request(`https://wtrack.example${path}`);
 
     const response = await worker.fetch(request, env);
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("Admin page");
+    expect(new URL(assetsFetch.mock.calls[0][0].url).pathname).toBe("/admin/");
   });
 
   it("rejects cross-origin paper switch requests", async () => {

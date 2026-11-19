@@ -7,13 +7,13 @@
     "types": ["node"],
     "strict": true,
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "noEmit": true,
     "skipLibCheck": true
   },
   "include": [
     "src/**/*.ts",
     "strategy-core/**/*.ts",
-    "backtest/**/*.ts",
     "tests/**/*.ts",
     "worker-configuration.d.ts"
   ]

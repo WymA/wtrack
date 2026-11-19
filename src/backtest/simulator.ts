@@ -1,6 +1,6 @@
 import {
   calculateIndicators
-} from "../strategy-core/indicators.ts";
+} from "../../strategy-core/indicators.ts";
 import {
   evaluateBuySetup,
   evaluateExitSignals,
@@ -8,8 +8,8 @@ import {
   marketRegimePasses,
   recentSwingLow,
   supportFailure
-} from "../strategy-core/strategy.ts";
-import type { Bar, EntrySetup, IndicatorSeries } from "../strategy-core/types.ts";
+} from "../../strategy-core/strategy.ts";
+import type { Bar, EntrySetup, IndicatorSeries } from "../../strategy-core/types.ts";
 import type { BacktestConfig } from "./config.ts";
 
 export interface CompletedTrade {
@@ -37,6 +37,15 @@ export interface OpenTrade {
 
 export interface BacktestResult {
   config: BacktestConfig;
+  period: {
+    start: string | null;
+    end: string | null;
+    tradingDays: number;
+  };
+  benchmark: {
+    ticker: "VOO";
+    returnPercent: number | null;
+  };
   metrics: {
     startingCapital: number;
     endingEquity: number;
@@ -414,6 +423,15 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
   }
 
   const lastDate = dates.at(-1);
+  const firstDate = dates[0];
+  const vooBars = source.VOO ?? [];
+  const benchmarkEntry = firstDate ? vooBars.find((bar) => dateOf(bar) === firstDate) : undefined;
+  const benchmarkExit = lastDate ? vooBars.find((bar) => dateOf(bar) === lastDate) : undefined;
+  const benchmarkReturn = benchmarkEntry && benchmarkExit &&
+    Number.isFinite(benchmarkEntry.open) && benchmarkEntry.open > 0 &&
+    Number.isFinite(benchmarkExit.close) && benchmarkExit.close > 0
+    ? (benchmarkExit.close / benchmarkEntry.open - 1) * 100
+    : null;
   const openTrades: OpenTrade[] = [];
   if (lastDate) {
     for (const [ticker, position] of positions) {
@@ -444,6 +462,15 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
 
   return {
     config,
+    period: {
+      start: firstDate ?? null,
+      end: lastDate ?? null,
+      tradingDays: dates.length
+    },
+    benchmark: {
+      ticker: "VOO",
+      returnPercent: benchmarkReturn
+    },
     metrics: {
       startingCapital: config.portfolio.startingCapital,
       endingEquity,

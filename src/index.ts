@@ -4,6 +4,7 @@ import { sendNewAlerts } from "./notifications";
 import { evaluateBuySetup, evaluateExitSignals, marketRegimePasses, recentSwingLow } from "./strategy";
 import type { Bar, Env, IndicatorSeries, SignalType, StockAlert } from "./types";
 export { PaperTrading } from "./paper-trading";
+export { Backtest } from "./backtest/server";
 
 const MAX_TRACKED_TICKERS = 200;
 const TICKER_PATTERN = /^[A-Z][A-Z0-9.-]{0,14}$/;
@@ -407,6 +408,17 @@ function scheduledPhase(date: Date): "close" | "morning" | null {
 
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  if (url.pathname.startsWith("/admin/backtest/")) {
+    const action = url.pathname.slice("/admin/backtest/".length);
+    const method = action === "config" || action === "cache" ? "GET"
+      : action === "run" || action === "refresh" ? "POST" : null;
+    if (!method) return jsonResponse({ error: "Not found." }, 404);
+    if (request.method !== method) return jsonResponse({ error: "Method not allowed." }, 405);
+    if (method === "POST" && request.headers.get("origin") !== url.origin) {
+      return jsonResponse({ error: "Invalid request origin." }, 403);
+    }
+    return env.BACKTEST.get(env.BACKTEST.idFromName("backtest")).fetch(request);
+  }
   if (url.pathname === "/admin/orders") {
     if (request.method !== "GET") return jsonResponse({ error: "Method not allowed." }, 405);
     return jsonResponse(await paperTradingRequest(env, "/orders"));
@@ -454,7 +466,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (request.method !== "GET") {
       return jsonResponse({ error: "Method not allowed." }, 405);
     }
-    return env.ASSETS.fetch(new Request(new URL("/admin", url), request));
+    return env.ASSETS.fetch(new Request(new URL("/admin/", url), request));
   }
   if (url.pathname === "/") {
     return env.ASSETS.fetch(request);

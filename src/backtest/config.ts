@@ -1,4 +1,4 @@
-import type { EntrySetup } from "../strategy-core/types.ts";
+import type { EntrySetup } from "../../strategy-core/types.ts";
 
 export type StopConfig =
   | { type: "swing-low"; lookback: number }
