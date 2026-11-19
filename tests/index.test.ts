@@ -49,9 +49,9 @@ function createEnv(values: Map<string, string>, watchlist: unknown = []) {
 }
 
 describe("admin actions", () => {
-  it("forwards Backtest requests to the integrated service without invoking paper trading", async () => {
+  it.each(["run", "save"])("forwards Backtest %s requests to the integrated service", async (action) => {
     const { env, backtestFetch } = createEnv(new Map());
-    const request = new Request("https://wtrack.example/admin/backtest/run", {
+    const request = new Request(`https://wtrack.example/admin/backtest/${action}`, {
       method: "POST", headers: { origin: "https://wtrack.example" }, body: "{}"
     });
     const response = await worker.fetch(request, env);
@@ -64,8 +64,10 @@ describe("admin actions", () => {
     const { env, backtestFetch } = createEnv(new Map());
     for (const [action, method, origin, status] of [
       ["run", "GET", "https://wtrack.example", 405],
+      ["save", "GET", "https://wtrack.example", 405],
       ["config", "POST", "https://wtrack.example", 405],
       ["run", "POST", "https://other.example", 403],
+      ["save", "POST", "https://other.example", 403],
       ["unknown", "GET", "https://wtrack.example", 404]
     ] as const) {
       const response = await worker.fetch(new Request(`https://wtrack.example/admin/backtest/${action}`, {
@@ -124,6 +126,64 @@ describe("admin actions", () => {
     }
   });
 
+  it("advances D only after the close and excludes its alerts from scheduled paper execution", async () => {
+    const values = new Map<string, string>();
+    const { env } = createEnv(values, ["AAPL"]);
+    env.ALPACA_API_KEY = "test-key";
+    env.ALPACA_API_SECRET_KEY = "test-secret";
+    const coordinator = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url.endsWith("/status")) return Response.json({ enabled: true });
+      if (url.endsWith("/symbols")) return Response.json({ symbols: [] });
+      if (url.endsWith("/execute")) return Response.json({ submitted: 0 });
+      throw new Error(`Unexpected coordinator request ${url}`);
+    });
+    env.PAPER_TRADING = {
+      idFromName: () => ({}), get: () => ({ fetch: coordinator })
+    } as unknown as DurableObjectNamespace;
+    const bars = Array.from({ length: 340 }, (_, index) => {
+      const close = 100 + index * 0.2;
+      return {
+        t: new Date(Date.parse("2026-11-16T05:00:00Z") - (339 - index) * 86_400_000).toISOString(),
+        o: close - 0.1, h: close + 1, l: close - 1, c: close, v: 1000
+      };
+    });
+    const fetcher = vi.fn().mockResolvedValue(Response.json({
+      bars: { SPY: bars, QQQ: bars, AAPL: bars }, next_page_token: null
+    }));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-16T15:00:00Z"));
+    vi.stubGlobal("fetch", fetcher);
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const early = await worker.fetch(new Request("https://wtrack.example/admin/scan"), env);
+      expect(early.status).toBe(200);
+      expect(values.has("momentum-signal-state")).toBe(false);
+      vi.setSystemTime(new Date("2026-11-16T21:30:00Z"));
+      fetcher.mockResolvedValue(Response.json({
+        bars: { SPY: bars, QQQ: bars, AAPL: bars }, next_page_token: null
+      }));
+      const scheduledWork: Promise<unknown>[] = [];
+      worker.scheduled({
+        scheduledTime: Date.parse("2026-11-16T21:30:00Z"), cron: "30 21 * * 1-5"
+      } as ScheduledController, env, {
+        waitUntil: (promise: Promise<unknown>) => scheduledWork.push(promise)
+      } as unknown as ExecutionContext);
+      await Promise.all(scheduledWork);
+      const state = JSON.parse(values.get("momentum-signal-state") ?? "") as { alerts: StockAlert[] };
+      expect(state.alerts).toMatchObject([{ type: "Setup D", strategy: "Setup D", percentileRank: 100 }]);
+      const execute = coordinator.mock.calls.find(([url]) => url.endsWith("/execute"));
+      expect(execute).toBeDefined();
+      expect(JSON.parse(String(execute![1]!.body)).alerts).toEqual([]);
+      const snapshot = JSON.parse(values.get("latest-scan") ?? "");
+      expect(snapshot.tickers[0].signals).toEqual(["Setup D"]);
+      expect(state.alerts[0]!.ema200).toBe(snapshot.tickers[0].ema200);
+    } finally {
+      info.mockRestore();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     { watchlist: ["AAPL"], expectedSymbols: ["SPY", "QQQ", "AAPL"], previous: 100, change: -10, percent: -10 },
     { watchlist: ["AAPL"], expectedSymbols: ["SPY", "QQQ", "AAPL"], previous: 0, change: 90, percent: null },
@@ -168,6 +228,7 @@ describe("admin actions", () => {
       expect(result.status).toBe("completed");
       expect(result.marketRegime).toEqual({
         passes: false,
+        v2Passes: false,
         spy: { close: 100, ema50: expect.any(Number), ema200: expect.any(Number) }
       });
       expect(fetcher).toHaveBeenCalledOnce();

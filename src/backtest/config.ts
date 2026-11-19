@@ -1,4 +1,6 @@
 import type { EntrySetup } from "../../strategy-core/types.ts";
+import type { MomentumStopType } from "../../strategy-core/types.ts";
+import { strategyCatalog } from "../../strategy-core/strategy.ts";
 
 export type StopConfig =
   | { type: "swing-low"; lookback: number }
@@ -11,6 +13,7 @@ export interface BacktestConfig {
   strategy: {
     setups: EntrySetup[];
     watchlist: string[];
+    momentumStop: MomentumStopType;
   };
   dateWindow: {
     start: string;
@@ -41,7 +44,7 @@ export interface BacktestConfig {
 }
 
 const TICKER_PATTERN = /^[A-Z][A-Z0-9.-]{0,14}$/;
-const SETUPS = new Set<string>(["Setup A", "Setup B", "Setup C"]);
+const SETUPS = new Set<string>(strategyCatalog.map((strategy) => strategy.id));
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -105,7 +108,11 @@ export function validateConfig(value: unknown, now = new Date()): BacktestConfig
     : [];
   if (!Array.isArray(strategy.setups) || setups.length !== strategy.setups.length ||
     new Set(setups).size !== setups.length) {
-    throw new TypeError("strategy.setups must contain unique Setup A, Setup B, or Setup C values.");
+    throw new TypeError(`strategy.setups must contain unique registered strategies: ${[...SETUPS].join(", ")}.`);
+  }
+  const momentumStop = strategy.momentumStop ?? "fixed-percent";
+  if (momentumStop !== "fixed-percent" && momentumStop !== "atr") {
+    throw new TypeError("strategy.momentumStop must be fixed-percent (8%) or atr (2.5x ATR14).");
   }
   const watchlist = Array.isArray(strategy.watchlist)
     ? strategy.watchlist.filter((ticker): ticker is string =>
@@ -190,7 +197,7 @@ export function validateConfig(value: unknown, now = new Date()): BacktestConfig
   }
 
   return {
-    strategy: { setups, watchlist },
+    strategy: { setups, watchlist, momentumStop },
     dateWindow: { start: startDate, end: endDate },
     portfolio: {
       startingCapital,

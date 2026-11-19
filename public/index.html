@@ -86,10 +86,10 @@
           <p class="text-body-secondary mb-2">Watchlist tickers with entry or exit signals in the latest scan.</p>
           <div class="d-flex flex-wrap gap-3 my-3" role="group" aria-label="Signal highlight legend">
             <span class="d-inline-flex align-items-center gap-2">
-              <i class="legend-swatch entry-swatch" aria-hidden="true"></i> Setup-A/B/C
+              <i class="legend-swatch entry-swatch" aria-hidden="true"></i> A/B/C/D entry
             </span>
             <span class="d-inline-flex align-items-center gap-2">
-              <i class="legend-swatch exit-swatch" aria-hidden="true"></i> Exit warning
+              <i class="legend-swatch exit-swatch" aria-hidden="true"></i> A1/A2/A3 exit
             </span>
           </div>
           <p id="signals-message" class="text-body-secondary" role="status">Loading signals…</p>
@@ -152,9 +152,10 @@
         <details class="card mb-4">
           <summary class="card-header fw-semibold">Strategy at a glance</summary>
           <div class="card-body row g-3">
-            <p class="col-12 col-lg-6 mb-0"><strong>Entry filter:</strong> New entries require SPY to close above its 50 and 200 EMAs.</p>
+            <p class="col-12 col-lg-6 mb-0"><strong>Entry filter:</strong> V1 entries require SPY above its 50 and 200 EMAs; V2/D requires SPY above its 200 EMA. Exit checks continue regardless.</p>
             <p class="col-12 col-lg-6 mb-0"><strong>Setup-A:</strong> Bullish 20/50/100/200 EMA stack, rising 50 and 200 EMAs, a recent pullback to the 20 EMA, and a bullish break above yesterday’s high.</p>
             <p class="col-12 col-lg-6 mb-0"><strong>Setup-B:</strong> Rising 200 EMA, a recent pullback near the 100 or 200 EMA, and a reclaim above the 20 and 50 EMAs after a recent bullish cross.</p>
+            <p class="col-12 col-lg-6 mb-0"><strong>Setup-D (V2, alerts only):</strong> Top-15% volatility-adjusted watchlist momentum, a rising 200 EMA, and close above the 20/50/200 EMA stack without excessive extension. Uses an 8% stop, winner trailing, and Friday momentum-decay exits. Never automatically paper traded.</p>
             <p class="col-12 col-lg-6 mb-0"><strong>Exits:</strong> A strategy-owned paper position is closed after two consecutive closes below the 50 EMA or 100 EMA.</p>
           </div>
         </details>

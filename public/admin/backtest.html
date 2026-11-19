@@ -49,6 +49,12 @@
     .help { padding:0 14px 12px; }
     .help ul { margin:8px 0; padding-left:20px; }
     .help li { margin:6px 0; }
+    .strategy-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; margin:14px 0; }
+    .strategy-card { display:block; padding:14px; border:1px solid var(--line); border-radius:8px; background:var(--bg); }
+    label.strategy-card { cursor:pointer; }
+    .strategy-card:has(input:checked) { border-color:var(--accent); }
+    .strategy-card p { margin:8px 0 0; }
+    .strategy-card input { margin-right:8px; }
     @media(max-width:600px) { main { padding:14px; } section { padding:13px; } header { align-items:flex-start; } }
   </style>
 </head>
@@ -58,18 +64,39 @@
     <h1>Backtest</h1>
     <p class="small">Historical simulation · split-adjusted Alpaca IEX daily bars · never submits orders</p>
     <section id="configuration">
-      <h2>Configuration override</h2>
-      <p class="small">Edit the JSON for this run. Default settings come from <code>backtest.config.json</code>; market bars are cached in WTrack's backtest storage.</p>
+      <h2>Configuration</h2>
+      <p class="small">Select entry strategies below or edit the JSON online. Edits affect only this draft until you click <strong>Save config</strong>; reload discards unsaved changes. Saved settings live on this WTrack server; repository JSON files are not rewritten.</p>
+      <p id="config-state" class="small" role="status">Loading saved configuration...</p>
+      <h2>Entry strategies</h2>
+      <p class="small">V1 entries require SPY above its 50 and 200 EMAs; V2/D requires SPY above its 200 EMA. These switches update this draft only. D uses equal-weight slots and its own exits, without V1 profit targets.</p>
+      <div id="strategy-cards" class="strategy-grid"></div>
+      <h2>Exit rules</h2>
+      <p class="small">A1/A2/A3 identify exit rule types, not Setup A. The same badges apply across entry strategies. Exit checks continue regardless of SPY's entry filter.</p>
+      <h3 id="v1-exit-rules" class="h6">V1: Setups A/B/C</h3>
+      <div class="strategy-grid" role="group" aria-labelledby="v1-exit-rules">
+        <div class="strategy-card"><strong><span class="signal-badge exit-badge">A1</span> Protective stop</strong><p class="small">Initial stop-loss and early Setup C support-failure exits use <code>stops</code>. Profit targets are configured separately with <code>profitTaking</code>.</p></div>
+        <div class="strategy-card"><strong><span class="signal-badge exit-badge">A2</span> 50 EMA exit</strong><p class="small">Two consecutive closes below the 50 EMA. Enabled by <code>trailingExitEma: "ema50"</code>; Setup C arms this exit only after reclaiming the 50 EMA.</p></div>
+        <div class="strategy-card"><strong><span class="signal-badge exit-badge">A3</span> 100 EMA exit</strong><p class="small">Two consecutive closes below the 100 EMA. Enabled by <code>trailingExitEma: "ema100"</code>; Setup C arms this exit only after reclaiming the 50 EMA.</p></div>
+      </div>
+      <h3 id="d-exit-rules" class="h6">V2: Setup D (automatic exits)</h3>
+      <p class="small">D always uses the rules below, with no V1 profit target. <code>trailingExitEma: "disabled"</code> affects V1 only and does not disable D's exits. EMA and rotation exits fill at the next trading open; hard stops remain active intraday.</p>
+      <div class="strategy-grid" role="group" aria-labelledby="d-exit-rules">
+        <div class="strategy-card"><strong><span class="signal-badge exit-badge">A1</span> D: Hard stop</strong><p class="small">8% below the actual entry fill by default. Set <code>strategy.momentumStop: "atr"</code> for 2.5x signal-day ATR(14) below the fill instead. Active from entry.</p></div>
+        <div class="strategy-card"><strong><span class="signal-badge exit-badge">A2</span> D: Standard trailing</strong><p class="small">Two consecutive closes below the 50 EMA, until the position first reaches a 25% gain.</p></div>
+        <div class="strategy-card"><strong><span class="signal-badge exit-badge">A3</span> D: Winner trailing</strong><p class="small">Once a session high reaches at least 25% above entry, permanently switch to two consecutive closes below the 100 EMA, even if the gain later falls below 25%.</p></div>
+        <div class="strategy-card"><strong><span class="signal-badge exit-badge">Rotation</span> D: Friday momentum decay</strong><p class="small">At Friday's close, exit only when all three hold: at least 15 elapsed trading sessions since entry, a close below the 20 EMA, and a momentum rank outside the watchlist's top 30%. Fills at the next available trading open, allowing for holidays.</p></div>
+      </div>
       <details>
         <summary>Configuration fields, choices, and units</summary>
         <div class="help small">
           <ul>
-            <li><code>strategy.setups</code>: choose any combination of <code>Setup A</code>, <code>Setup B</code>, and <code>Setup C</code>. A/B are close-confirmed right-side entries; C is an intraday support touch. <code>strategy.watchlist</code> is a list of 1–200 unique uppercase ticker symbols; SPY is added automatically for the regime filter and VOO for the performance benchmark.</li>
+            <li><code>strategy.setups</code>: choose any combination of <code>Setup A</code>, <code>Setup B</code>, <code>Setup C</code>, and <code>Setup D</code>. A/B are close-confirmed right-side entries; C is an intraday support touch; D ranks volatility-adjusted watchlist momentum. <code>strategy.watchlist</code> is a list of 1–200 unique uppercase ticker symbols; SPY is added automatically for the regime filter and VOO for the performance benchmark. Rank cutoffs round up, with at least one stock in a nonempty ranked universe.</li>
+            <li><code>strategy.momentumStop</code>: D only. <code>fixed-percent</code> (default) sets a hard stop 8% below the fill; <code>atr</code> uses 2.5x signal-day ATR(14). ATR uses Wilder smoothing. D uses equal-weight slots (<code>equity / maxOpenPositions</code>), ignores V1 sizing and profit targets, and automatically trails the 50 EMA, permanently widening to the 100 EMA once the session high reaches a 25% gain. Friday rotation requires at least 15 elapsed trading sessions, a close below the 20 EMA and a rank outside the top 30%; the exit fills at the next trading open.</li>
             <li><code>dateWindow.start</code> and <code>dateWindow.end</code>: ISO dates in <code>YYYY-MM-DD</code> form. The end may be <code>today</code> (New York date); an in-progress daily bar is excluded until 4 p.m. New York time. The cache fetches 600 calendar days before the start and requires at least 300 prior daily bars.</li>
-            <li><code>portfolio.startingCapital</code> and <code>portfolio.sizing.value</code> are USD amounts unless noted. <code>maxOpenPositions</code> is a count. Sizing types: <code>risk-percent</code> risks that percent of current equity at the initial stop; <code>fixed-dollar</code> sets a per-position notional target; <code>equity-percent</code> sets notional as a percent of current equity. Entries are capped by available cash.</li>
-            <li><code>stops.initial.type</code>: <code>swing-low</code> uses the minimum low over <code>lookback</code> daily bars; <code>fixed-percent</code> sets a percent below entry; <code>ema-buffer</code> sets a percent below the chosen <code>ema20</code>, <code>ema50</code>, <code>ema100</code>, or <code>ema200</code> on the signal day. <code>leftSideFailurePercent</code> sets Setup C's hard stop below touched support; the separate close-confirmed failure check applies only on entry day and the following session.</li>
-            <li><code>profitTaking.type</code>: <code>fixed-percent</code> is a percent above fill price; <code>risk-multiple</code> is a multiple of the entry-to-initial-stop distance. <code>partialPercent</code> (1–100%) is the share of the original position sold at the target; 100% exits fully.</li>
-            <li><code>trailingExitEma</code>: <code>disabled</code>, <code>ema50</code>, or <code>ema100</code>. The selected standard exit requires two consecutive daily closes below that EMA. For Setup C, standard exits are armed only after a close above the 50 EMA.</li>
+            <li><code>portfolio.startingCapital</code> is USD; <code>maxOpenPositions</code> limits all strategies together. V1 sizing types: <code>risk-percent</code> risks that percent of current equity at the initial stop; <code>fixed-dollar</code> sets a per-position USD notional target; <code>equity-percent</code> sets notional as a percent of current equity. Entries are capped by available cash. When mixed with V1, D's highest-score candidates take priority at the next open.</li>
+            <li><code>stops.initial.type</code> (V1): <code>swing-low</code> uses the minimum low over <code>lookback</code> daily bars; <code>fixed-percent</code> sets a percent below entry; <code>ema-buffer</code> sets a percent below the chosen <code>ema20</code>, <code>ema50</code>, <code>ema100</code>, or <code>ema200</code> on the signal day. <code>leftSideFailurePercent</code> sets Setup C's hard stop below touched support; the separate close-confirmed failure check applies only on entry day and the following session.</li>
+            <li><code>profitTaking.type</code> (V1): <code>fixed-percent</code> is a percent above fill price; <code>risk-multiple</code> is a multiple of the entry-to-initial-stop distance. <code>partialPercent</code> (1–100%) is the share of the original position sold at the target; 100% exits fully.</li>
+            <li><code>trailingExitEma</code> (V1): <code>disabled</code>, <code>ema50</code>, or <code>ema100</code>. The selected standard exit requires two consecutive daily closes below that EMA. For Setup C, standard exits are armed only after a close above the 50 EMA. This does not disable D's trailing exits.</li>
             <li><code>costs.slippagePercent</code> is adverse slippage in percent on each side; <code>commissionPerOrder</code> is USD per order. A partial trim is a separate sell order and incurs another commission.</li>
           </ul>
           Right-side close signals enter at the next session's open. Setup C's daily high cannot trigger a target on its intraday entry bar because daily OHLC data cannot establish whether the high came before or after the touch. When a stop and target are both crossed in one later bar, the stop is assumed first.
@@ -79,7 +106,8 @@
       <div class="actions">
         <button id="run" class="primary" type="button">Run backtest</button>
         <button id="refresh" type="button">Refresh cached bars</button>
-        <button id="reload" type="button">Reload defaults</button>
+        <button id="save" type="button">Save config</button>
+        <button id="reload" type="button">Reload saved config</button>
         <span id="status" role="status" aria-live="polite"></span>
       </div>
     </section>
@@ -101,6 +129,8 @@
   <script>
     const configField = document.querySelector("#config");
     const statusField = document.querySelector("#status");
+    let savedText = "";
+    let strategyCatalog = [];
     const money = (value) => new Intl.NumberFormat(undefined, { style:"currency", currency:"USD" }).format(value);
     const percent = (value) => `${value.toFixed(2)}%`;
     const safe = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
@@ -111,9 +141,32 @@
       return value;
     }
     function showStatus(message, error = false) { statusField.textContent = message; statusField.classList.toggle("error", error); }
+    function syncStrategyCards() {
+      let selected = [];
+      try { selected = JSON.parse(configField.value).strategy.setups; } catch {}
+      document.querySelectorAll("[data-setup]").forEach((input) => {
+        input.checked = Array.isArray(selected) && selected.includes(input.dataset.setup);
+      });
+    }
+    function markDraft() {
+      const dirty = savedText !== configField.value;
+      document.querySelector("#config-state").textContent = dirty
+        ? "Unsaved changes. Run uses this draft; only Save config changes the saved configuration."
+        : "Saved configuration loaded.";
+      syncStrategyCards();
+    }
+    function displaySavedConfig(config) {
+      savedText = JSON.stringify(config, null, 2);
+      configField.value = savedText;
+      markDraft();
+    }
     async function reloadConfig() {
-      const { config } = await api("/admin/backtest/config");
-      configField.value = JSON.stringify(config, null, 2);
+      const value = await api("/admin/backtest/config");
+      strategyCatalog = value.strategies;
+      document.querySelector("#strategy-cards").innerHTML = strategyCatalog.map((strategy) =>
+        `<label class="strategy-card"><input type="checkbox" data-setup="${safe(strategy.id)}"><strong><span class="signal-badge entry-badge">${safe(strategy.code)}</span> ${safe(strategy.name)}</strong><p class="small">${safe(strategy.description)}</p></label>`
+      ).join("");
+      displaySavedConfig(value.config);
     }
     async function loadCache() {
       const { tickers } = await api("/admin/backtest/cache");
@@ -144,21 +197,56 @@
         `<div class="metric"><span>${safe(label)}</span><strong class="${positive === undefined ? "" : positive ? "positive" : "negative"}">${safe(value)}</strong></div>`
       ).join("");
       document.querySelector("#trades").innerHTML = result.trades.length
-        ? result.trades.map((trade) => `<tr><td>${safe(trade.ticker)}</td><td>${safe(trade.setup)}</td><td>${safe(trade.entryDate)}</td><td>${money(trade.entryPrice)}</td><td>${safe(trade.exitDate)}</td><td>${money(trade.exitPrice)}</td><td>${trade.shares.toFixed(3)}</td><td class="${trade.pnl >= 0 ? "positive" : "negative"}">${money(trade.pnl)}</td><td>${percent(trade.returnPercent)}</td><td>${safe(trade.exitReason)}</td></tr>`).join("")
+        ? result.trades.map((trade) => `<tr><td>${safe(trade.ticker)}</td><td>${entryBadge(trade.setup)}</td><td>${safe(trade.entryDate)}</td><td>${money(trade.entryPrice)}</td><td>${safe(trade.exitDate)}</td><td>${money(trade.exitPrice)}</td><td>${trade.shares.toFixed(3)}</td><td class="${trade.pnl >= 0 ? "positive" : "negative"}">${money(trade.pnl)}</td><td>${percent(trade.returnPercent)}</td><td>${exitBadge(trade.exitReason)}</td></tr>`).join("")
         : '<tr><td colspan="10" class="small">No completed trades in this date range.</td></tr>';
       document.querySelector("#open-trades").innerHTML = result.openTrades.length
-        ? result.openTrades.map((trade) => `<tr><td>${safe(trade.ticker)}</td><td>${safe(trade.setup)}</td><td>${safe(trade.entryDate)}</td><td>${money(trade.entryPrice)}</td><td>${money(trade.lastClose)}</td><td>${trade.remainingShares.toFixed(3)}</td><td class="${trade.unrealizedPnl >= 0 ? "positive" : "negative"}">${money(trade.unrealizedPnl)}</td></tr>`).join("")
+        ? result.openTrades.map((trade) => `<tr><td>${safe(trade.ticker)}</td><td>${entryBadge(trade.setup)}</td><td>${safe(trade.entryDate)}</td><td>${money(trade.entryPrice)}</td><td>${money(trade.lastClose)}</td><td>${trade.remainingShares.toFixed(3)}</td><td class="${trade.unrealizedPnl >= 0 ? "positive" : "negative"}">${money(trade.unrealizedPnl)}</td></tr>`).join("")
         : '<tr><td colspan="7" class="small">No positions remain open.</td></tr>';
       document.querySelector("#summary").hidden = false;
     }
+    function entryBadge(setup) {
+      const code = strategyCatalog.find((strategy) => strategy.id === setup)?.code ?? setup.replace(/^Setup /, "");
+      return `<span class="signal-badge entry-badge" title="${safe(setup)}">${safe(code)}</span>`;
+    }
+    function exitBadge(reason) {
+      const code = {
+        "Initial stop": "A1", "Left-side failure": "A1", "Hard Stop": "A1",
+        "EMA trailing exit (ema50)": "A2", "EMA trailing exit (ema100)": "A3"
+      }[reason];
+      return typeof code === "string" ? `<span class="signal-badge exit-badge" title="${safe(reason)}">${code}</span>` : safe(reason);
+    }
     async function withBusy(message, action) {
-      const buttons = ["#run", "#refresh", "#reload"].map((selector) => document.querySelector(selector));
-      buttons.forEach((item) => { item.disabled = true; });
+      const controls = document.querySelectorAll("#configuration button, #configuration input, #configuration select, #configuration textarea");
+      controls.forEach((item) => { item.disabled = true; });
       showStatus(message);
       try { await action(); }
       catch (error) { showStatus(error instanceof Error ? error.message : "Request failed.", true); }
-      finally { buttons.forEach((item) => { item.disabled = false; }); }
+      finally { controls.forEach((item) => { item.disabled = false; }); }
     }
+    configField.addEventListener("input", markDraft);
+    document.querySelector("#strategy-cards").addEventListener("change", (event) => {
+      const input = event.target;
+      if (!input.dataset.setup) return;
+      try {
+        const config = JSON.parse(configField.value);
+        if (!Array.isArray(config.strategy?.setups)) throw new Error("Config must contain strategy.setups before selecting strategies.");
+        const selected = new Set(config.strategy.setups);
+        if (input.checked) selected.add(input.dataset.setup);
+        else selected.delete(input.dataset.setup);
+        config.strategy.setups = [...selected];
+        configField.value = JSON.stringify(config, null, 2);
+        markDraft();
+      } catch (error) {
+        syncStrategyCards();
+        showStatus(error.message, true);
+      }
+    });
+    document.querySelector("#save").addEventListener("click", () => withBusy("Saving configuration...", async () => {
+      const config = JSON.parse(configField.value);
+      const value = await api("/admin/backtest/save", { config });
+      displaySavedConfig(value.config);
+      showStatus("Configuration saved on this WTrack server.");
+    }));
     document.querySelector("#run").addEventListener("click", () => withBusy("Updating cache and simulating…", async () => {
       const config = JSON.parse(configField.value);
       const { result } = await api("/admin/backtest/run", { config });
@@ -173,7 +261,7 @@
       showStatus(`Cache refreshed. Bars fetched: ${Object.values(refreshed).reduce((sum, count) => sum + count, 0)}.`);
     }));
     document.querySelector("#reload").addEventListener("click", () => withBusy("Loading configuration…", async () => {
-      await reloadConfig(); showStatus("Configuration reloaded.");
+      await reloadConfig(); showStatus("Saved configuration reloaded. Draft changes discarded.");
     }));
     Promise.all([reloadConfig(), loadCache()]).catch((error) => showStatus(error.message, true));
   </script>

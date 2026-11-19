@@ -1,1 +1,1 @@
-export { calculateEma, calculateIndicators } from "../strategy-core/indicators.ts";
+export { calculateAtr, calculateEma, calculateIndicators } from "../strategy-core/indicators.ts";

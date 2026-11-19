@@ -1,15 +1,19 @@
-import type { Bar, ExitSignal, IndicatorSeries, RightSideSetup } from "./types.ts";
+import { strategyA } from "./setups/a.ts";
+import { strategyB } from "./setups/b.ts";
+import { strategyC } from "./setups/c.ts";
+import { strategyD } from "./setups/d.ts";
+import type { Bar, EntrySetup, IndicatorSeries, MarketInstrument, RightSideSetup, StrategyDefinition } from "./types.ts";
+
+export { evaluateExitSignals } from "./exits.ts";
+export { evaluateSupportTouch, supportFailure } from "./setups/c.ts";
+export { evaluateMomentumExit, momentumHardStop, momentumRegimePasses, rankMomentumUniverse } from "./setups/d.ts";
 
 export const REQUIRED_DAILY_BARS = 300;
-const RIGHT_SIDE_SETUPS: readonly RightSideSetup[] = ["Setup A", "Setup B"];
-
-const MIN_HISTORY = 6;
-
-function hasUpwardSlope(values: readonly number[], index: number): boolean {
-  const current = values[index];
-  const fiveDaysAgo = values[index - 5];
-  return current !== undefined && fiveDaysAgo !== undefined && current > fiveDaysAgo;
-}
+export const strategies = [strategyA, strategyB, strategyC, strategyD] as const satisfies readonly StrategyDefinition[];
+export const strategyCatalog = strategies.map(({ id, code, name, timing, description }) => ({
+  id, code, name, timing, description
+}));
+const RIGHT_SIDE_SETUPS = strategies.flatMap((strategy) => strategy.timing === "close" ? [strategy.id] : []);
 
 export function marketRegimePasses(spyBars: readonly Bar[], spy: IndicatorSeries): boolean {
   const index = spyBars.length - 1;
@@ -25,133 +29,54 @@ export function evaluateBuySetup(
   indicators: IndicatorSeries,
   active: readonly RightSideSetup[] = RIGHT_SIDE_SETUPS
 ): RightSideSetup | null {
-  const index = bars.length - 1;
-  if (index < MIN_HISTORY - 1) return null;
-
-  const today = bars[index];
-  const yesterday = bars[index - 1];
-  const ema20 = indicators.ema20[index];
-  const ema50 = indicators.ema50[index];
-  const ema100 = indicators.ema100[index];
-  const ema200 = indicators.ema200[index];
-
-  if (
-    today === undefined || yesterday === undefined ||
-    ema20 === undefined || ema50 === undefined ||
-    ema100 === undefined || ema200 === undefined
-  ) {
-    return null;
+  for (const strategy of strategies) {
+    if (strategy.timing === "close" && active.includes(strategy.id) && strategy.evaluate(bars, indicators)) {
+      return strategy.id;
+    }
   }
-
-  const perfectStack = ema20 > ema50 && ema50 > ema100 && ema100 > ema200;
-  const trendSlopesUp =
-    hasUpwardSlope(indicators.ema50, index) &&
-    hasUpwardSlope(indicators.ema200, index);
-  const recentPullbackToValue = bars.slice(Math.max(0, index - 3), index).some((bar, offset) => {
-    const barIndex = Math.max(0, index - 3) + offset;
-    const pullbackEma20 = indicators.ema20[barIndex];
-    const pullbackEma50 = indicators.ema50[barIndex];
-    return pullbackEma20 !== undefined && pullbackEma50 !== undefined &&
-      bar.low <= pullbackEma20 && bar.low > pullbackEma50 * 0.99;
-  });
-  const bullishTrigger =
-    today.close > today.open &&
-    today.close > ema20 &&
-    today.close > yesterday.high;
-
-  if (active.includes("Setup A") && perfectStack && trendSlopesUp && recentPullbackToValue && bullishTrigger) {
-    return "Setup A";
-  }
-
-  const macroTrendUp = hasUpwardSlope(indicators.ema200, index);
-  const recentDeepPullback = bars
-    .slice(Math.max(0, index - 15), index)
-    .some((bar, offset) => {
-      const barIndex = Math.max(0, index - 15) + offset;
-      const pullbackEma100 = indicators.ema100[barIndex];
-      const pullbackEma200 = indicators.ema200[barIndex];
-      return pullbackEma100 !== undefined && pullbackEma200 !== undefined &&
-        (bar.low <= pullbackEma100 * 1.01 || bar.low <= pullbackEma200 * 1.01) &&
-        bar.close >= pullbackEma200 * 0.97;
-    });
-  const reclaimedShortTermAverages = today.close > ema20 && today.close > ema50;
-  const recentBullishCross = Array.from(
-    { length: Math.min(5, index + 1) },
-    (_, offset) => index - Math.min(4, index) + offset
-  ).some((crossIndex) => {
-    if (crossIndex <= 0) return false;
-    const current20 = indicators.ema20[crossIndex];
-    const current50 = indicators.ema50[crossIndex];
-    const previous20 = indicators.ema20[crossIndex - 1];
-    const previous50 = indicators.ema50[crossIndex - 1];
-    return current20 !== undefined && current50 !== undefined &&
-      previous20 !== undefined && previous50 !== undefined &&
-      previous20 <= previous50 && current20 > current50;
-  });
-
-  if (active.includes("Setup B") && macroTrendUp && recentDeepPullback && reclaimedShortTermAverages && recentBullishCross) {
-    return "Setup B";
-  }
-
   return null;
 }
 
-export function evaluateExitSignals(
-  bars: readonly Bar[],
-  indicators: IndicatorSeries
-): ExitSignal[] {
-  const index = bars.length - 1;
-  if (index < 1) return [];
+export function evaluateIntradaySetups(
+  priorBars: readonly Bar[],
+  indicators: IndicatorSeries,
+  session: Pick<Bar, "open" | "low">,
+  active: readonly EntrySetup[]
+): Array<{ setup: EntrySetup; support: number; price: number }> {
+  const entries: Array<{ setup: EntrySetup; support: number; price: number }> = [];
+  for (const strategy of strategies) {
+    if (strategy.timing !== "intraday" || !active.includes(strategy.id)) continue;
+    const entry = strategy.evaluate(priorBars, indicators, session);
+    if (entry) entries.push({ setup: strategy.id, ...entry });
+  }
+  return entries;
+}
 
-  const today = bars[index];
-  const yesterday = bars[index - 1];
-  const ema50Today = indicators.ema50[index];
-  const ema50Yesterday = indicators.ema50[index - 1];
-  const ema100Today = indicators.ema100[index];
-  const ema100Yesterday = indicators.ema100[index - 1];
-  if (
-    today === undefined || yesterday === undefined ||
-    ema50Today === undefined || ema50Yesterday === undefined ||
-    ema100Today === undefined || ema100Yesterday === undefined
-  ) {
-    return [];
-  }
+export function isRightSideSetup(setup: EntrySetup): setup is RightSideSetup {
+  return strategies.some((strategy) => strategy.id === setup && strategy.timing === "close");
+}
 
-  const signals: ExitSignal[] = [];
-  if (today.close < ema50Today && yesterday.close < ema50Yesterday) {
-    signals.push("Exit Tier 2");
-  }
-  if (today.close < ema100Today && yesterday.close < ema100Yesterday) {
-    signals.push("Exit Tier 3");
-  }
-  return signals;
+export function isIntradaySetup(setup: EntrySetup): boolean {
+  return strategies.some((strategy) => strategy.id === setup && strategy.timing === "intraday");
+}
+
+export function isRankedSetup(setup: EntrySetup): boolean {
+  return strategies.some((strategy) => strategy.id === setup && strategy.timing === "ranked-close");
+}
+
+export function evaluateRankedSetups(
+  universe: readonly MarketInstrument[],
+  spy: MarketInstrument,
+  active: readonly EntrySetup[]
+) {
+  return strategies.flatMap((strategy) =>
+    strategy.timing === "ranked-close" && active.includes(strategy.id)
+      ? strategy.evaluate(universe, spy).map((candidate) => ({ ...candidate, setup: strategy.id }))
+      : []
+  );
 }
 
 export function recentSwingLow(bars: readonly Bar[], lookback = 5): number {
   if (!bars.length) throw new Error("Cannot calculate a swing low without price bars.");
   return Math.min(...bars.slice(-lookback).map(({ low }) => low));
-}
-
-export function evaluateSupportTouch(
-  priorBars: readonly Bar[],
-  indicators: IndicatorSeries,
-  session: Pick<Bar, "open" | "low">
-): { support: number; price: number } | null {
-  const index = priorBars.length - 1;
-  if (!hasUpwardSlope(indicators.ema200, index)) return null;
-  const yesterday = priorBars[index];
-  if (!yesterday) return null;
-
-  const levels = [indicators.ema100[index], indicators.ema200[index]]
-    .filter((level) => level !== undefined && yesterday.close > level)
-    .sort((left, right) => right - left);
-  for (const support of levels) {
-    const limit = support * 1.005;
-    if (session.low <= limit) return { support, price: Math.min(session.open, limit) };
-  }
-  return null;
-}
-
-export function supportFailure(close: number, support: number, percent = 3): boolean {
-  return close < support * (1 - percent / 100);
 }

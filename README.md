@@ -25,7 +25,7 @@ Edit [`public/watchlist.json`](./public/watchlist.json) to change the stock watc
 
 Choose **Backtest** in the top menu, or open `/admin/backtest.html`. It runs inside WTrack with `pnpm dev` and on the deployed Worker; no separate server is needed. It simulates trades using split-adjusted Alpaca IEX daily bars and never submits orders.
 
-Configure defaults in [`backtest.config.json`](./backtest.config.json), or override settings in the UI for a single run. History is cached in a dedicated SQLite-backed Durable Object; local and deployed caches are separate. See [`backtest.md`](./backtest.md) for configuration and execution assumptions.
+Select A/B/C or the new V2 momentum strategy D using the explanation cards, or edit the configuration online. **Run backtest** previews the draft; only **Save config** persists it, and **Reload saved config** discards unsaved edits. [`backtest.config.json`](./backtest.config.json) supplies deployment defaults; saved settings and cached history live separately for local and deployed WTrack. See [`backtest.md`](./backtest.md) for details.
 
 ## Deploy
 

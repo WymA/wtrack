@@ -103,6 +103,28 @@ it("shares the top menu and theme across Home, Admin, and Backtest", () => {
 });
 
 describe("dashboard watchlist rendering", () => {
+  it("renders D, hard-stop and momentum-rotation signals with their correct colors and separate V2 regime", () => {
+    const { renderSnapshot, elements } = createDashboard();
+    renderSnapshot({
+      watchlist: ["AAA", "BBB", "CCC"],
+      snapshot: {
+        scannedAt: "2025-01-17T22:00:00Z", sessionDate: "2025-01-17", status: "completed",
+        marketRegime: { passes: false, v2Passes: true, spy: {} },
+        tickers: [
+          { ticker: "AAA", signals: ["Setup D"] }, { ticker: "BBB", signals: ["Hard Stop"] },
+          { ticker: "CCC", signals: ["Momentum Rotation"] }
+        ]
+      }
+    });
+    const rows = elements.get("#signal-rows").children;
+    expect(rows.map((row) => row.children[1].children[0].textContent)).toEqual(["D", "A1", "Momentum Rotation"]);
+    expect(rows[0].children[1].children[0].className).toContain("entry-badge");
+    expect(rows[1].children[1].children[0].className).toContain("exit-badge");
+    expect(rows[2].classList.add).toHaveBeenCalledWith("exit-row");
+    expect(elements.get("#market-filter").textContent).toContain("V1");
+    expect(elements.get("#market-filter").textContent).toContain("V2");
+  });
+
   it("places Signal before Date in Triggered Signals and omits Signal from Watchlist", () => {
     const markup = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
     const headersByTable = Object.fromEntries(
@@ -151,11 +173,14 @@ describe("dashboard watchlist rendering", () => {
     const rows = elements.get("#ticker-rows").children;
     expect(signals.map((row) => row.children[0].textContent)).toEqual(["AAPL", "MSFT"]);
     expect(signals[0].children[0].children).toHaveLength(0);
-    expect(signals[0].children[1].children[0].textContent).toBe("Setup-A");
+    expect(signals[0].children[1].children[0].textContent).toBe("A");
+    expect(signals[0].children[1].children[0].title).toBe("Setup A");
     expect(signals[0].children.slice(2).map((cell) => cell.textContent)).toEqual([
       "2026-11-16", "$100.00", "+$1.25", "+1.25%", "$99.00", "$98.00", "$97.00", "$96.00"
     ]);
-    expect(signals[1].children[1].children.map((badge) => badge.textContent)).toEqual(["Exit-2", "Exit-3"]);
+    expect(signals[1].children[1].children.map((badge) => badge.textContent)).toEqual(["A2", "A3"]);
+    expect(signals[0].children[1].children[0].className).toContain("entry-badge");
+    expect(signals[1].children[1].children[0].className).toContain("exit-badge");
     expect(signals[0].classList.add).toHaveBeenCalledWith("entry-row");
     expect(signals[1].classList.add).toHaveBeenCalledWith("exit-row");
     expect(rows.map((row) => row.children[0].textContent)).toEqual(["NEW"]);

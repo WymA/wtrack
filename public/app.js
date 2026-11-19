@@ -37,10 +37,14 @@ function addCell(row, value) {
 function renderSignals(cell, signals) {
   for (const signal of signals) {
     const badge = document.createElement("span");
-    badge.className = signal.startsWith("Exit") ? "signal-badge exit-badge" : "signal-badge entry-badge";
+    const exit = signal.startsWith("Exit") || signal === "Hard Stop" || signal === "Momentum Rotation";
+    badge.className = exit ? "signal-badge exit-badge" : "signal-badge entry-badge";
     badge.textContent = signal
-      .replace(/^Exit Tier ([23])$/, "Exit-$1")
-      .replace(/^Setup ([ABC])$/, "Setup-$1");
+      .replace(/^Exit Tier ([123])$/, "A$1")
+      .replace(/^Hard Stop$/, "A1")
+      .replace(/^Setup (.+)$/, "$1");
+    badge.title = signal;
+    badge.setAttribute("aria-label", signal);
     cell.append(badge);
   }
 }
@@ -55,7 +59,7 @@ function renderTickers(tickers, target, { showSignal = false } = {}) {
       const signals = ticker.signals;
       if (signals.some((signal) => signal.startsWith("Setup"))) {
         row.classList.add("entry-row");
-      } else if (signals.some((signal) => signal.startsWith("Exit"))) {
+      } else if (signals.some((signal) => signal.startsWith("Exit") || signal === "Hard Stop" || signal === "Momentum Rotation")) {
         row.classList.add("exit-row");
       }
       renderSignals(addCell(row, ""), signals);
@@ -118,7 +122,7 @@ function renderSnapshot(payload) {
     paperEnabled === true ? "text-success-emphasis" : paperEnabled === false ? "text-danger-emphasis" : "text-body-secondary"
   }`;
   paperTradingStatusElement.textContent = paperEnabled === true
-    ? "Paper trading: ON · Setup-A and Setup-B · scheduled scans only"
+    ? "Paper trading: ON · A and B · scheduled scans only"
     : paperEnabled === false
       ? "Paper trading: OFF · signals only"
       : "Paper trading: status unavailable.";
@@ -170,6 +174,10 @@ function renderSnapshot(payload) {
   document.querySelector("#market-filter").textContent = snapshot.marketRegime.passes
     ? "Passing"
     : "Not passing";
+  if (typeof snapshot.marketRegime.v2Passes === "boolean") {
+    document.querySelector("#market-filter").textContent =
+      `V1: ${snapshot.marketRegime.passes ? "Passing" : "Not passing"} · V2: ${snapshot.marketRegime.v2Passes ? "Passing" : "Not passing"}`;
+  }
   document.querySelector("#spy-summary").textContent =
     `SPY ${displayNumber(snapshot.marketRegime.spy.close)} · ` +
     `EMA 50 ${displayNumber(snapshot.marketRegime.spy.ema50)} · ` +

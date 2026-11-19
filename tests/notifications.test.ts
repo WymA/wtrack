@@ -69,4 +69,31 @@ describe("optional webhook notifications", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("includes D ranking details and does not confuse its EMA exit with an already notified V1 exit", async () => {
+    let history = JSON.stringify(["AAPL:Exit Tier 2"]);
+    const env = {
+      WEBHOOK_URL: "https://example.test/webhook",
+      WTRACK_KV: {
+        get: async () => history,
+        put: async (_key: string, value: string) => { history = value; }
+      }
+    } as unknown as Env;
+    const momentum: StockAlert = { ...alert, strategy: "Setup D", momentumScore: 4.25, percentileRank: 95 };
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      expect(await sendNewAlerts([alert, momentum], alert.date, env)).toEqual([momentum]);
+      const body = JSON.parse(fetcher.mock.calls[0]![1].body) as { text: string };
+      expect(body.text).toContain("Strategy Setup D");
+      expect(body.text).toContain("Momentum 4.250");
+      expect(body.text).toContain("Watchlist percentile 95.0");
+      expect(body.text).toContain("Stop $89.00");
+      expect(body.text).toContain("EMA 20/50/100/200:");
+      expect(await sendNewAlerts([momentum], alert.date, env)).toEqual([]);
+      expect(fetcher).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

@@ -4,12 +4,19 @@ import {
 import {
   evaluateBuySetup,
   evaluateExitSignals,
-  evaluateSupportTouch,
+  evaluateIntradaySetups,
+  evaluateMomentumExit,
+  evaluateRankedSetups,
+  isIntradaySetup,
+  isRankedSetup,
+  isRightSideSetup,
   marketRegimePasses,
   recentSwingLow,
+  momentumHardStop,
+  rankMomentumUniverse,
   supportFailure
 } from "../../strategy-core/strategy.ts";
-import type { Bar, EntrySetup, IndicatorSeries } from "../../strategy-core/types.ts";
+import type { Bar, EntrySetup, IndicatorSeries, MarketInstrument } from "../../strategy-core/types.ts";
 import type { BacktestConfig } from "./config.ts";
 
 export interface CompletedTrade {
@@ -76,6 +83,7 @@ interface EntryCandidate {
   signalDate: string;
   signalIndex: number;
   support?: number;
+  atr14?: number;
 }
 
 interface Position {
@@ -94,6 +102,7 @@ interface Position {
   targetReached: boolean;
   leftSideFailureClosesRemaining: number;
   standardExitsArmed: boolean;
+  wideTrailing: boolean;
 }
 
 interface PendingExit {
@@ -111,7 +120,9 @@ function indicatorPrefix(indicators: IndicatorSeries, end: number): IndicatorSer
     ema20: indicators.ema20.slice(0, end),
     ema50: indicators.ema50.slice(0, end),
     ema100: indicators.ema100.slice(0, end),
-    ema200: indicators.ema200.slice(0, end)
+    ema200: indicators.ema200.slice(0, end),
+    ...(indicators.atr14 ? { atr14: indicators.atr14.slice(0, end) } : {}),
+    ...(indicators.atr20 ? { atr20: indicators.atr20.slice(0, end) } : {})
   };
 }
 
@@ -147,6 +158,9 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
   }
   const spy = instruments.get("SPY");
   if (!spy) throw new Error("Cached SPY bars are required to run a backtest.");
+  const rightSideSetups = config.strategy.setups.filter(isRightSideSetup);
+  const hasIntradaySetups = config.strategy.setups.some(isIntradaySetup);
+  const hasRankedSetups = config.strategy.setups.some(isRankedSetup);
 
   const dates = spy.bars
     .map(dateOf)
@@ -207,7 +221,10 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
     const entryPrice = fillPrice(rawPrice, "buy", config.costs.slippagePercent);
     const initialStop = config.stops.initial;
     let stopPrice: number;
-    if (initialStop.type === "swing-low") {
+    if (candidate.setup === "Setup D") {
+      stopPrice = momentumHardStop(entryPrice, candidate.atr14 ?? 0, config.strategy.momentumStop);
+      if (stopPrice <= 0) return;
+    } else if (initialStop.type === "swing-low") {
       stopPrice = recentSwingLow(
         instrument.bars.slice(0, candidate.signalIndex + 1),
         initialStop.lookback
@@ -226,10 +243,20 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
     const riskPerShare = entryPrice - stopPrice;
     if (riskPerShare <= 0) return;
 
-    const equity = positionEquity(cash, positions, lastCloses);
+    const marks = candidate.setup === "Setup D" ? new Map(lastCloses) : lastCloses;
+    if (candidate.setup === "Setup D") {
+      for (const ticker of positions.keys()) {
+        const held = instruments.get(ticker);
+        const index = held?.indexByDate.get(date);
+        if (held && index !== undefined) marks.set(ticker, held.bars[index]!.open);
+      }
+    }
+    const equity = positionEquity(cash, positions, marks);
     const sizing = config.portfolio.sizing;
     let budget: number;
-    if (sizing.type === "risk-percent") {
+    if (candidate.setup === "Setup D") {
+      budget = equity / config.portfolio.maxOpenPositions;
+    } else if (sizing.type === "risk-percent") {
       budget = equity * sizing.value / 100 / riskPerShare * entryPrice;
     } else if (sizing.type === "fixed-dollar") {
       budget = sizing.value;
@@ -241,7 +268,8 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
     if (!Number.isFinite(shares) || shares <= 0) return;
 
     const riskDistance = entryPrice - stopPrice;
-    const targetPrice = config.profitTaking.type === "fixed-percent"
+    const targetPrice = candidate.setup === "Setup D" ? Number.POSITIVE_INFINITY
+      : config.profitTaking.type === "fixed-percent"
       ? entryPrice * (1 + config.profitTaking.value / 100)
       : entryPrice + riskDistance * config.profitTaking.value;
     const commission = config.costs.commissionPerOrder;
@@ -260,8 +288,9 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       exitShares: 0,
       exitValue: 0,
       targetReached: false,
-      leftSideFailureClosesRemaining: candidate.setup === "Setup C" ? 2 : 0,
-      standardExitsArmed: candidate.setup !== "Setup C"
+      leftSideFailureClosesRemaining: candidate.support !== undefined ? 2 : 0,
+      standardExitsArmed: candidate.support === undefined,
+      wideTrailing: false
     });
   };
 
@@ -275,7 +304,7 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       return;
     }
     if (bar.open <= position.stopPrice) {
-      closePosition(position, date, bar.open, "Initial stop");
+      closePosition(position, date, bar.open, position.setup === "Setup D" ? "Hard Stop" : "Initial stop");
       return;
     }
     if (!position.targetReached && bar.open >= position.targetPrice) {
@@ -329,20 +358,21 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
         const bar = barIndex === undefined ? undefined : instrument?.bars[barIndex];
         if (!instrument || barIndex === undefined || !bar || positions.has(ticker)) continue;
 
-        if (config.strategy.setups.includes("Setup C") && barIndex > 0) {
-          const support = evaluateSupportTouch(
+        if (hasIntradaySetups && barIndex > 0) {
+          const entries = evaluateIntradaySetups(
             instrument.bars.slice(0, barIndex),
             indicatorPrefix(instrument.indicators, barIndex),
-            bar
+            bar,
+            config.strategy.setups
           );
-          if (support) {
+          for (const entry of entries) {
             openPosition({
               ticker,
-              setup: "Setup C",
+              setup: entry.setup,
               signalDate: date,
               signalIndex: barIndex - 1,
-              support: support.support
-            }, date, support.price);
+              support: entry.support
+            }, date, entry.price);
           }
         }
       }
@@ -352,10 +382,10 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       const position = positions.get(ticker);
       if (!position) continue;
       if (bar.low <= position.stopPrice) {
-        closePosition(position, date, position.stopPrice, "Initial stop");
+        closePosition(position, date, position.stopPrice, position.setup === "Setup D" ? "Hard Stop" : "Initial stop");
         continue;
       }
-      const ambiguousEntryDayHigh = position.setup === "Setup C" && position.entryDate === date;
+      const ambiguousEntryDayHigh = position.support !== undefined && position.entryDate === date;
       if (!position.targetReached && !ambiguousEntryDayHigh && bar.high >= position.targetPrice) {
         position.targetReached = true;
         const fraction = config.profitTaking.partialPercent / 100;
@@ -364,6 +394,18 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       }
     }
 
+    const universe: MarketInstrument[] = hasRankedSetups ? config.strategy.watchlist.flatMap((ticker) => {
+      const instrument = instruments.get(ticker);
+      const index = instrument?.indexByDate.get(date);
+      return instrument && index !== undefined ? [{
+        ticker,
+        bars: instrument.bars.slice(0, index + 1),
+        indicators: indicatorPrefix(instrument.indicators, index + 1)
+      }] : [];
+    }) : [];
+    const momentumRanks = hasRankedSetups ? rankMomentumUniverse(universe) : [];
+    const momentumWinners = new Set(momentumRanks
+      .filter((rank) => rank.rank <= Math.ceil(momentumRanks.length * 0.3)).map((rank) => rank.ticker));
     const nextEntries: EntryCandidate[] = [];
     for (const ticker of config.strategy.watchlist) {
       const instrument = instruments.get(ticker);
@@ -372,9 +414,20 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       if (!instrument || barIndex === undefined || !bar) continue;
       const position = positions.get(ticker);
 
-      if (position) {
+      if (position?.setup === "Setup D") {
+        const exit = evaluateMomentumExit(
+          position, instrument.bars.slice(0, barIndex + 1),
+          indicatorPrefix(instrument.indicators, barIndex + 1), momentumWinners.has(ticker)
+        );
+        position.wideTrailing = exit.wideTrailing;
+        if (exit.signal) {
+          const reason = exit.signal === "Exit Tier 2" ? "EMA trailing exit (ema50)"
+            : exit.signal === "Exit Tier 3" ? "EMA trailing exit (ema100)" : exit.signal;
+          pendingExits.set(ticker, { reason });
+        }
+      } else if (position) {
         const wasStandardExitArmed = position.standardExitsArmed;
-        if (position.setup === "Setup C" && position.support !== undefined &&
+        if (position.support !== undefined &&
           position.leftSideFailureClosesRemaining > 0 &&
           supportFailure(bar.close, position.support, config.stops.leftSideFailurePercent)) {
           pendingExits.set(ticker, { reason: "Left-side failure" });
@@ -383,7 +436,7 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
             position.leftSideFailureClosesRemaining -= 1;
           }
           const ema50 = instrument.indicators.ema50[barIndex];
-          if (position.setup === "Setup C" && ema50 !== undefined && bar.close > ema50) {
+          if (position.support !== undefined && ema50 !== undefined && bar.close > ema50) {
             position.standardExitsArmed = true;
           }
         }
@@ -398,12 +451,11 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
             pendingExits.set(ticker, { reason: `EMA trailing exit (${config.trailingExitEma})` });
           }
         }
-      } else if (regime && config.strategy.setups.some((setup) => setup === "Setup A" || setup === "Setup B")) {
+      } else if (regime && rightSideSetups.length > 0) {
         const setup = evaluateBuySetup(
           instrument.bars.slice(0, barIndex + 1),
           indicatorPrefix(instrument.indicators, barIndex + 1),
-          config.strategy.setups.filter((value): value is "Setup A" | "Setup B" =>
-            value === "Setup A" || value === "Setup B")
+          rightSideSetups
         );
         if (setup) {
           nextEntries.push({
@@ -417,7 +469,18 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       lastCloses.set(ticker, bar.close);
     }
 
-    pendingEntries = nextEntries;
+    const rankedEntries = hasRankedSetups && regimeIndex !== undefined
+      ? evaluateRankedSetups(universe, {
+        ticker: "SPY",
+        bars: spy.bars.slice(0, regimeIndex + 1),
+        indicators: indicatorPrefix(spy.indicators, regimeIndex + 1)
+      }, config.strategy.setups).map((candidate) => ({
+        ticker: candidate.ticker, setup: candidate.setup, signalDate: date,
+        signalIndex: instruments.get(candidate.ticker)!.indexByDate.get(date)!,
+        atr14: candidate.atr14
+      }))
+      : [];
+    pendingEntries = [...remainingEntries.filter((candidate) => isRankedSetup(candidate.setup)), ...rankedEntries, ...nextEntries];
     const equity = positionEquity(cash, positions, lastCloses);
     equityCurve.push({ date, equity });
   }

@@ -264,6 +264,7 @@ export class PaperTrading {
     }
     const signals = new Map<string, StockAlert[]>();
     for (const alert of input.alerts) {
+      if (alert.strategy === "Setup D") continue;
       const group = signals.get(alert.ticker) ?? [];
       group.push(alert);
       signals.set(alert.ticker, group);

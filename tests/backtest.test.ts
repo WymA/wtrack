@@ -49,8 +49,8 @@ function backtestRequest(action: string, body?: unknown, origin = "https://wtrac
   });
 }
 
-function createBacktest() {
-  return new Backtest({ storage: createStorage() } as DurableObjectState, {
+function createBacktest(storage = createStorage()) {
+  return new Backtest({ storage } as DurableObjectState, {
     ALPACA_API_KEY: "test-key", ALPACA_API_SECRET_KEY: "test-secret"
   } as Env);
 }
@@ -282,6 +282,40 @@ describe("runSimulation", () => {
 });
 
 describe("Worker backtest service", () => {
+  it("persists one online config only through Save and retains relative today dates across reloads", async () => {
+    const storage = createStorage();
+    const service = createBacktest(storage);
+    const settings = config("2024-01-03", "2024-01-10");
+    settings.dateWindow.end = "today";
+    settings.strategy.setups = ["Setup A"];
+    const saved = await service.fetch(backtestRequest("save", { config: settings }));
+    expect(saved.status).toBe(200);
+    const restarted = createBacktest(storage);
+    const loaded = await restarted.fetch(backtestRequest("config"));
+    expect(await loaded.json()).toMatchObject({
+      config: settings,
+      strategies: [expect.objectContaining({ code: "A", description: expect.any(String) }),
+        expect.objectContaining({ code: "B" }), expect.objectContaining({ code: "C" }),
+        expect.objectContaining({ code: "D" })]
+    });
+    const defaults = await (await restarted.fetch(backtestRequest("config"))).json() as { config: typeof settings };
+    expect(defaults.config.strategy.setups).toEqual(["Setup A"]);
+    const invalid = await restarted.fetch(backtestRequest("save", { config: {} }));
+    expect(invalid.status).toBe(400);
+    expect(await (await restarted.fetch(backtestRequest("config"))).json())
+      .toMatchObject({ config: settings });
+  });
+
+  it("uses an explicitly saved default config without changing the bundled deployment seed", async () => {
+    const service = createBacktest();
+    const settings = config("2024-01-03", "2024-01-10");
+    settings.strategy.setups = ["Setup B"];
+    expect((await service.fetch(backtestRequest("save", { config: settings }))).status).toBe(200);
+    expect(await (await service.fetch(backtestRequest("config"))).json()).toMatchObject({ config: settings });
+    expect(await (await createBacktest().fetch(backtestRequest("config"))).json())
+      .toMatchObject({ config: { strategy: { setups: ["Setup A", "Setup B", "Setup C"] } } });
+  });
+
   it("serves defaults and cache status without a separate Node server", async () => {
     const service = createBacktest();
     const defaults = await service.fetch(backtestRequest("config"));
@@ -302,6 +336,9 @@ describe("Worker backtest service", () => {
     expect(result.result).toEqual(runSimulation(settings, { SPY: bars, VOO: bars, XYZ: bars }));
     expect(result.cache).toHaveLength(3);
     expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(await (await service.fetch(backtestRequest("config"))).json()).toMatchObject({
+      config: { strategy: { setups: ["Setup A", "Setup B", "Setup C"] } }
+    });
     expect(fetcher.mock.calls.map(([input]) => new URL(input.toString()).searchParams.get("symbols")))
       .toEqual(["SPY", "VOO", "XYZ"]);
     for (const [input] of fetcher.mock.calls) {

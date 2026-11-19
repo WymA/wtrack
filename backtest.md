@@ -1,6 +1,6 @@
 # WTrack backtesting
 
-The backtester shares WTrack's pure Strategy v1 indicators and setup rules, uses split-adjusted Alpaca IEX daily bars, and only simulates trades. It never submits orders.
+The backtester shares WTrack's pure V1 A/B/C and V2 D indicators and setup rules, uses split-adjusted Alpaca IEX daily bars, and only simulates trades. It never submits orders.
 
 ## Open Backtest
 
@@ -10,19 +10,36 @@ On the deployed Worker, the same menu, page, and APIs run simulations directly i
 
 ## Configure and run
 
-Edit [`backtest.config.json`](./backtest.config.json) for defaults, which are bundled with WTrack at deployment. The UI's JSON editor overrides them for one run only; **Reload defaults** restores the server's defaults. **Run backtest** updates missing cached data before simulating. **Refresh cached bars** re-downloads the configured universe and SPY, replacing each ticker's cache with the requested history window only after a successful, nonempty download.
+[`backtest.config.json`](./backtest.config.json) supplies the initial deployment defaults. The Backtest page shows strategy explanation cards with entry checkboxes and a JSON editor. Both edit only the current draft. **Run backtest** uses that draft without saving it.
+
+There is one online configuration: no filenames, selectors, or file imports. **Reload saved config** discards unsaved edits. Click **Save config** to persist the validated draft in the Backtest Durable Object, overriding the bundled seed across restarts and deployments. Saving never rewrites repository files or changes the signal scanner/paper-trading settings. Local and deployed saved settings are independent. `today` remains relative and resolves when a backtest runs.
+
+**Run backtest** updates missing cached data before simulating. **Refresh cached bars** re-downloads the configured universe, SPY and VOO, replacing each ticker's cache with the requested history window only after a successful, nonempty download. Neither operation saves config edits.
 
 | Configuration | Choices and units |
 | --- | --- |
-| `strategy.setups` | Any combination of `Setup A`, `Setup B` (right-side), and `Setup C` (left-side). |
+| `strategy.setups` | Any combination of V1 `Setup A`, `Setup B` (right-side), `Setup C` (left-side), and V2 `Setup D` (ranked momentum). Defaults remain A/B/C; select D explicitly. |
+| `strategy.momentumStop` | D only: `fixed-percent` (default, 8% below fill) or `atr` (2.5x signal-day ATR14 below fill). |
 | `strategy.watchlist` | 1-200 unique uppercase ticker symbols. SPY is added for the entry regime gate. |
 | `dateWindow` | `start` and `end` as `YYYY-MM-DD`; `end` also accepts `today`, using New York time. An in-progress daily bar is excluded before 4 p.m. New York time. |
-| `portfolio` | Starting capital in USD, maximum open positions, and sizing by `risk-percent`, `fixed-dollar`, or `equity-percent`. Percentage values use 1 for 1%; entries are capped by cash. |
-| `stops.initial` | `swing-low` with a bar `lookback`; `fixed-percent` with a percentage `value`; or `ema-buffer` with an `ema` (`ema20`, `ema50`, `ema100`, `ema200`) and `bufferPercent`. |
+| `portfolio` | Starting capital in USD and maximum open positions across all strategies. V1 sizing: `risk-percent`, `fixed-dollar`, or `equity-percent`; 1 means 1%. D uses equal-weight slots (`equity / maxOpenPositions`) instead. All entries are capped by cash. |
+| `stops.initial` | V1: `swing-low` with a bar `lookback`; `fixed-percent` with a percentage `value`; or `ema-buffer` with an `ema` (`ema20`, `ema50`, `ema100`, `ema200`) and `bufferPercent`. |
 | `stops.leftSideFailurePercent` | Setup C's hard-stop percentage below the touched support. Its separate close-confirmed failure check applies on the entry day and following session. |
-| `profitTaking` | A `fixed-percent` target or `risk-multiple` target with a `value`; `partialPercent` sells 1-100% of the original position at the target. |
-| `trailingExitEma` | `disabled`, `ema50`, or `ema100`. EMA exits require two consecutive closes below the selected EMA; Setup C arms these exits after a close above EMA 50. |
+| `profitTaking` | V1: a `fixed-percent` target or `risk-multiple` target with a `value`; `partialPercent` sells 1-100% of the original position at the target. D does not use these targets. |
+| `trailingExitEma` | V1: `disabled`, `ema50`, or `ema100`. Requires two consecutive closes below the selected EMA; C arms these exits after reclaiming EMA50. Does not override D's automatic trailing rules. |
 | `costs` | Adverse `slippagePercent` per side and USD `commissionPerOrder`. Partial trims incur a separate commission. |
+
+Entry badges are **A/B/C/D**. Exit badges are **A1** for protective stops, **A2** for the 50 EMA exit, and **A3** for the 100 EMA exit; hover over a trade badge for its full reason. Profit targets and momentum rotation retain descriptive labels. Existing colors and V1 execution rules are unchanged.
+
+### Strategy D (V2)
+
+D ranks the watchlist by `(126-day return + 63-day return) / (2 * ATR20 / close)`. ATR uses Wilder smoothing. Stocks with at least 300 bars and valid scores participate in ranking, including those failing entry conditions; ties use ticker order. Top-15% entry and top-30% retention cutoffs round up, with at least one stock in a nonempty ranked universe.
+
+Entries require SPY above EMA200, positive 63/126-day returns, a rising EMA200, `close > EMA20 > EMA50 > EMA200`, and a close no more than 8% above EMA20. Highest-score candidates fill equal-weight slots at the next trading open, before V1 close candidates when mixed together. One position per ticker is shared across strategies.
+
+D has its own hard stop and two-close EMA50 trailing exit. Once a session high reaches a 25% gain, EMA100 trailing is permanently latched for that position. At Friday's close, positions held for at least 15 elapsed trading sessions also exit if below EMA20 and outside the top 30%; execution is at the next trading open, allowing for holidays. Stops remain active regardless of SPY. D has no fixed profit target.
+
+The scanner uses the same rules with an alert-only virtual position ledger, assuming next-open entries and an 8% stop. It replays missed completed sessions with sufficient indicator warm-up and keeps checking tracked symbols removed from the watchlist. D alerts include score, high-is-best percentile, reference stop, and EMAs. They never enter automated paper trading; selecting ATR stops or saving settings here affects only backtests.
 
 Results include the requested date window and actual simulated trading period, return, ending equity, drawdown, win rate, profit factor, completed trades, and remaining open positions. VOO is automatically downloaded and cached as a buy-and-hold benchmark for the same simulated period: first session's open to last session's close, using split-adjusted prices without dividends or trading costs. Its return is shown as unavailable if either boundary price is missing, rather than silently comparing a shorter period.
 
@@ -38,15 +55,19 @@ Close-confirmed right-side signals execute at the next trading session's open. S
 
 | Path | Purpose |
 | --- | --- |
-| `strategy-core/` | Pure indicators and strategy rules shared by the Worker and simulator. |
+| `strategy-core/strategy.ts` | Shared registry and evaluation facade for all strategies. |
+| `strategy-core/setups/` | Separate A/B/C/D entry rules and strategy-card descriptions; D also owns shared momentum ranking and position-exit logic. |
+| `strategy-core/exits.ts` | Shared EMA exit rules. |
 | `src/backtest/` | Worker-compatible Backtest Durable Object, config validation, SQLite cache, and simulator. |
 | `src/data.ts` | Shared server-side Alpaca market-data client, including historical downloads. |
 | `public/admin/index.html` | WTrack Admin page. |
 | `public/admin/admin.js` | Admin actions and paper-trading controls. |
 | `public/admin/backtest.html` | Integrated Backtest UI, using the shared WTrack top menu and theme. |
-| `backtest.config.json` | User-editable backtest defaults. |
+| `src/backtest/configs.ts` | One validated online configuration persisted in Durable Object SQLite. |
+| `src/momentum-signals.ts` | Alert-only D position tracking and completed-session replay in Worker KV. |
+| `backtest.config.json` | User-editable deployment seed; saved overrides take precedence. |
 | `.wrangler/` | Ignored local Worker and Durable Object state. |
 
-The same-origin endpoints are `GET /admin/backtest/config`, `GET /admin/backtest/cache`, `POST /admin/backtest/run`, and `POST /admin/backtest/refresh`. POST requests validate the request origin and configuration; failures are displayed in the UI.
+The same-origin endpoints are `GET /admin/backtest/config` (saved settings and strategy descriptions), `GET /admin/backtest/cache`, `POST /admin/backtest/save` (`config`), `POST /admin/backtest/run`, and `POST /admin/backtest/refresh`. Run/refresh accept a draft `config`, or use the saved configuration when omitted. POST requests validate the request origin and configuration; failures are displayed in the UI.
 
 WTrack deployment through a configured GitHub connector remains automatic. The `BACKTEST` binding and its SQLite Durable Object migration are declared in `wrangler.toml`.

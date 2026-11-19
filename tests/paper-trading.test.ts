@@ -136,6 +136,20 @@ describe("paper trading", () => {
     expect(brokerOrders).toHaveLength(2);
   });
 
+  it("never trades D entries or uses D exits to liquidate A/B-owned shares", async () => {
+    const { execute, brokerOrders, positions } = harness();
+    await execute([alert("AAPL", "Setup A")]);
+    brokerOrders[0]!.status = "filled";
+    brokerOrders[0]!.filled_qty = brokerOrders[0]!.qty;
+    positions.set("AAPL", brokerOrders[0]!.qty);
+    const signals = [
+      alert("MSFT", "Setup D"), alert("AAPL", "Exit Tier 2"), alert("AAPL", "Hard Stop"),
+      alert("AAPL", "Momentum Rotation")
+    ].map((item) => ({ ...item, strategy: "Setup D" as const }));
+    expect(await (await execute(signals)).json()).toEqual({ submitted: 0 });
+    expect(brokerOrders).toHaveLength(1);
+  });
+
   it("stops if the broker position no longer matches the strategy ledger", async () => {
     const { execute, brokerOrders, positions } = harness();
     await execute([alert("AAPL", "Setup A")]);

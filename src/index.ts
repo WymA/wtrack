@@ -1,6 +1,9 @@
-import { fetchDailyBars, REQUIRED_DAILY_BARS } from "./data";
+import { fetchDailyHistory, REQUIRED_DAILY_BARS } from "./data";
 import { calculateIndicators } from "./indicators";
 import { sendNewAlerts } from "./notifications";
+import { advanceMomentumSignals, MOMENTUM_STATE_KEY, parseMomentumState } from "./momentum-signals";
+import { momentumRegimePasses } from "../strategy-core/strategy";
+import { currentSessionIsComplete } from "./backtest/config";
 import { evaluateBuySetup, evaluateExitSignals, marketRegimePasses, recentSwingLow } from "./strategy";
 import type { Bar, Env, IndicatorSeries, SignalType, StockAlert } from "./types";
 export { PaperTrading } from "./paper-trading";
@@ -21,6 +24,7 @@ interface ScanResult {
   status: "completed" | "no-current-session";
   marketRegime: {
     passes: boolean;
+    v2Passes?: boolean;
     spy: BenchmarkSummary;
   };
   alerts: StockAlert[];
@@ -285,7 +289,7 @@ function createDashboardSnapshot(
   const signalsByTicker = new Map<string, SignalType[]>();
   for (const alert of alerts) {
     const signals = signalsByTicker.get(alert.ticker) ?? [];
-    signals.push(alert.type);
+    if (!signals.includes(alert.type)) signals.push(alert.type);
     signalsByTicker.set(alert.ticker, signals);
   }
 
@@ -306,6 +310,7 @@ function createDashboardSnapshot(
 
 async function runScan(env: Env, phase?: "close" | "morning"): Promise<ScanResult> {
   const watchlist = await loadTickerList(env);
+  const momentumState = parseMomentumState(await env.WTRACK_KV.get(MOMENTUM_STATE_KEY));
   const tradingEnabled = phase !== undefined && await paperTradingStatus(env);
   const managedValue = tradingEnabled ? await paperTradingRequest(env, "/symbols") : { symbols: [] };
   if (typeof managedValue !== "object" || managedValue === null ||
@@ -316,9 +321,13 @@ async function runScan(env: Env, phase?: "close" | "morning"): Promise<ScanResul
   const managed: string[] = managedValue.symbols;
   const today = currentNewYorkDate(new Date());
   const sessionDate = phase === "morning" ? await previousTradingSession(env, today) : today;
-  const tickersToFetch = [...new Set(["SPY", "QQQ", ...watchlist, ...managed])];
-  const data = await fetchDailyBars(tickersToFetch, env,
-    phase === "morning" ? new Date(`${today}T00:00:00Z`) : new Date());
+  const tickersToFetch = [...new Set(["SPY", "QQQ", ...watchlist, ...managed, ...momentumState.positions.map((position) => position.ticker)])];
+  const history = await fetchDailyHistory(tickersToFetch, env,
+    phase === "morning" ? new Date(`${today}T00:00:00Z`) : new Date(), fetch,
+    momentumState.date || undefined);
+  const data = Object.fromEntries(Object.entries(history).map(([ticker, bars]) => [
+    ticker, bars.slice(-REQUIRED_DAILY_BARS)
+  ]));
   const spyBars = data.SPY ?? [];
   if (spyBars.length < REQUIRED_DAILY_BARS) {
     throw new Error(`SPY must have at least ${REQUIRED_DAILY_BARS} daily bars.`);
@@ -327,6 +336,7 @@ async function runScan(env: Env, phase?: "close" | "morning"): Promise<ScanResul
   const spyIndicators = calculateIndicators(spyBars);
   const marketRegime = {
     passes: marketRegimePasses(spyBars, spyIndicators),
+    v2Passes: momentumRegimePasses({ ticker: "SPY", bars: spyBars, indicators: spyIndicators }),
     spy: getBenchmarkSummary(spyBars, spyIndicators)
   };
   const date = sessionDate ?? today;
@@ -372,6 +382,12 @@ async function runScan(env: Env, phase?: "close" | "morning"): Promise<ScanResul
     }
   }
 
+  if (date < today || currentSessionIsComplete()) {
+    const momentum = advanceMomentumSignals(momentumState, date, watchlist, history);
+    alerts.push(...momentum.alerts.filter((alert) => alert.date === date));
+    await env.WTRACK_KV.put(MOMENTUM_STATE_KEY, JSON.stringify(momentum));
+  }
+
   const snapshot = createDashboardSnapshot(
     watchlist,
     data,
@@ -385,7 +401,7 @@ async function runScan(env: Env, phase?: "close" | "morning"): Promise<ScanResul
     await paperTradingRequest(env, "/execute", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ date, phase, alerts })
+      body: JSON.stringify({ date, phase, alerts: alerts.filter((alert) => alert.strategy !== "Setup D") })
     });
   }
   const notified = await sendNewAlerts(alerts, date, env);
@@ -411,7 +427,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (url.pathname.startsWith("/admin/backtest/")) {
     const action = url.pathname.slice("/admin/backtest/".length);
     const method = action === "config" || action === "cache" ? "GET"
-      : action === "run" || action === "refresh" ? "POST" : null;
+      : action === "run" || action === "refresh" || action === "save" ? "POST" : null;
     if (!method) return jsonResponse({ error: "Not found." }, 404);
     if (request.method !== method) return jsonResponse({ error: "Method not allowed." }, 405);
     if (method === "POST" && request.headers.get("origin") !== url.origin) {

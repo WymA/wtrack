@@ -11,6 +11,9 @@ export interface StockAlert {
   ema50: number;
   ema100: number;
   ema200: number;
+  strategy?: "Setup D";
+  momentumScore?: number | null;
+  percentileRank?: number | null;
 }
 
 export interface Env {

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
 import { expect, it, vi } from "vitest";
+import { strategyCatalog } from "../strategy-core/strategy.ts";
 
 function createAdmin(fetcher) {
   const elements = new Map();
@@ -30,6 +31,9 @@ function createBacktestUI(fetcher) {
   const markup = readFileSync(new URL("../public/admin/backtest.html", import.meta.url), "utf8");
   const script = markup.match(/<script>([\s\S]*?)<\/script>/)[1];
   const elements = new Map();
+  const strategyInputs = new Map(strategyCatalog.map((strategy) => [
+    strategy.id, { dataset: { setup: strategy.id }, checked: false }
+  ]));
   const document = {
     querySelector(selector) {
       if (!elements.has(selector)) {
@@ -39,11 +43,16 @@ function createBacktestUI(fetcher) {
         });
       }
       return elements.get(selector);
+    },
+    querySelectorAll(selector) {
+      if (selector === "[data-setup]") return [...strategyInputs.values()];
+      return ["#run", "#refresh", "#reload", "#save", "#config"]
+        .map((id) => document.querySelector(id)).concat([...strategyInputs.values()]);
     }
   };
   const context = createContext({ document, fetch: fetcher });
   runInContext(script, context);
-  return { elements, markup, renderResult: context.renderResult };
+  return { elements, strategyInputs, markup, renderResult: context.renderResult };
 }
 
 it("loads and updates the paper trading switch", async () => {
@@ -90,7 +99,10 @@ it("renders stored order details as text and reports refresh failures", async ()
 
 it("loads and runs backtests through the WTrack server without a local launcher", async () => {
   const fetcher = vi.fn(async (path) => {
-    if (path === "/admin/backtest/config") return Response.json({ config: { strategy: { watchlist: ["AAPL"] } } });
+    if (path === "/admin/backtest/config") return Response.json({
+      config: { strategy: { setups: ["Setup A"], watchlist: ["AAPL"] } },
+      strategies: strategyCatalog
+    });
     if (path === "/admin/backtest/cache") return Response.json({ tickers: [] });
     if (path === "/admin/backtest/run") return Response.json({ error: "Not enough historical bars." }, { status: 502 });
     throw new Error(`Unexpected request: ${path}`);
@@ -103,9 +115,58 @@ it("loads and runs backtests through the WTrack server without a local launcher"
   await elements.get("#run").click({ currentTarget: elements.get("#run") });
   expect(elements.get("#status").textContent).toBe("Not enough historical bars.");
   expect(fetcher.mock.calls[2][1].method).toBe("POST");
-  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({ config: { strategy: { watchlist: ["AAPL"] } } });
+  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({ config: { strategy: { setups: ["Setup A"], watchlist: ["AAPL"] } } });
   expect(elements.get("#run").disabled).toBe(false);
   expect(elements.get("#refresh").disabled).toBe(false);
+});
+
+it("edits one online config, saves only explicitly, and discards unsaved changes on reload", async () => {
+  let saved = { strategy: { setups: ["Setup A"], watchlist: ["AAPL"] } };
+  const fetcher = vi.fn(async (path, init) => {
+    if (path === "/admin/backtest/cache") return Response.json({ tickers: [] });
+    if (path === "/admin/backtest/save") {
+      const { config } = JSON.parse(init.body);
+      saved = config;
+      return Response.json({ config });
+    }
+    return Response.json({ config: saved, strategies: strategyCatalog });
+  });
+  const { elements, strategyInputs, markup } = createBacktestUI(fetcher);
+  await vi.waitFor(() => expect(elements.get("#config").value).toContain("AAPL"));
+  expect(elements.get("#strategy-cards").innerHTML).toContain("Stacked Pullback");
+  expect(elements.get("#strategy-cards").innerHTML).toContain("Momentum Rotation");
+  for (const removed of ["config-select", "config-name", "config-files"]) expect(markup).not.toContain(`id="${removed}"`);
+  expect(strategyInputs.get("Setup A").checked).toBe(true);
+  const b = strategyInputs.get("Setup B");
+  b.checked = true;
+  elements.get("#strategy-cards").change({ target: b });
+  expect(JSON.parse(elements.get("#config").value).strategy.setups).toEqual(["Setup A", "Setup B"]);
+  expect(elements.get("#config-state").textContent).toContain("Unsaved changes");
+  expect(saved.strategy.setups).toEqual(["Setup A"]);
+  expect(fetcher.mock.calls.filter(([path]) => path === "/admin/backtest/save")).toHaveLength(0);
+  await elements.get("#save").click();
+  expect(saved.strategy.setups).toEqual(["Setup A", "Setup B"]);
+  expect(elements.get("#config-state").textContent).toBe("Saved configuration loaded.");
+  elements.get("#config").value = JSON.stringify({ ...saved, strategy: { ...saved.strategy, setups: [] } });
+  elements.get("#config").input();
+  await elements.get("#reload").click();
+  expect(JSON.parse(elements.get("#config").value)).toEqual(saved);
+});
+
+it("leaves the draft intact when Save is rejected", async () => {
+  const config = { strategy: { setups: ["Setup A"], watchlist: ["AAPL"] } };
+  const { elements } = createBacktestUI(async (path) => {
+    if (path === "/admin/backtest/cache") return Response.json({ tickers: [] });
+    if (path === "/admin/backtest/save") return Response.json({ error: "Invalid config." }, { status: 400 });
+    return Response.json({ config, strategies: strategyCatalog });
+  });
+  await vi.waitFor(() => expect(elements.get("#config").value).toContain("AAPL"));
+  elements.get("#config").value = '{"broken":true}';
+  elements.get("#config").input();
+  await elements.get("#save").click();
+  expect(elements.get("#status").textContent).toBe("Invalid config.");
+  expect(elements.get("#config").value).toBe('{"broken":true}');
+  expect(elements.get("#config-state").textContent).toContain("Unsaved changes");
 });
 
 it.each([

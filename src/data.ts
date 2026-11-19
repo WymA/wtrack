@@ -81,11 +81,22 @@ export async function fetchDailyBars(
   now = new Date(),
   fetcher: typeof fetch = fetch
 ): Promise<Record<string, Bar[]>> {
-  const start = new Date(now.getTime() - HISTORY_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const result = await fetchHistoricalDailyBars(tickers, env, start, now.toISOString(), fetcher);
+  const result = await fetchDailyHistory(tickers, env, now, fetcher);
   return Object.fromEntries(Object.entries(result).map(([ticker, bars]) => [
     ticker, bars.slice(-REQUIRED_DAILY_BARS)
   ]));
+}
+
+export async function fetchDailyHistory(
+  tickers: readonly string[],
+  env: Pick<Env, "ALPACA_API_KEY" | "ALPACA_API_SECRET_KEY">,
+  now = new Date(),
+  fetcher: typeof fetch = fetch,
+  replayAfter?: string
+): Promise<Record<string, Bar[]>> {
+  const anchor = replayAfter ? Math.min(now.getTime(), Date.parse(`${replayAfter}T00:00:00Z`)) : now.getTime();
+  const start = new Date(anchor - HISTORY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  return fetchHistoricalDailyBars(tickers, env, start, now.toISOString(), fetcher);
 }
 
 export async function fetchHistoricalDailyBars(

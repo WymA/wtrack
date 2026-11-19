@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetchDailyBars } from "../src/data";
+import { fetchDailyBars, fetchDailyHistory } from "../src/data";
 
 const credentials = {
   ALPACA_API_KEY: "test-key",
@@ -18,6 +18,21 @@ function makeBar(index: number) {
 }
 
 describe("fetchDailyBars", () => {
+  it("retains warm-up before a missed-session replay instead of truncating it to 300 bars", async () => {
+    const calls: URL[] = [];
+    const bars = Array.from({ length: 350 }, (_, index) => makeBar(index));
+    const result = await fetchDailyHistory(["AAPL"], credentials, new Date("2026-01-01T22:00:00Z"),
+      async (input) => {
+        calls.push(new URL(input.toString()));
+        return Response.json({ bars: { AAPL: bars }, next_page_token: null });
+      }, "2025-01-01");
+    expect(result.AAPL).toHaveLength(350);
+    expect(calls[0]!.searchParams.get("start")).toBe(
+      new Date(Date.parse("2025-01-01T00:00:00Z") - 600 * 86_400_000).toISOString()
+    );
+    expect(calls[0]!.searchParams.get("end")).toBe("2026-01-01T22:00:00.000Z");
+  });
+
   it("follows pagination and keeps the most recent 300 daily bars", async () => {
     const calls: URL[] = [];
     const bars = Array.from({ length: 350 }, (_, index) => makeBar(index));

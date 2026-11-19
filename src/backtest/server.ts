@@ -1,10 +1,11 @@
-import defaults from "../../backtest.config.json";
+import { strategyCatalog } from "../../strategy-core/strategy";
 import { fetchHistoricalDailyBars } from "../data";
 import type { Env } from "../types";
 import { openCache, getCacheSummary, getCachedBars, updateCachedBars } from "./cache";
 import { currentSessionIsComplete, newYorkDate, requiredWarmupStart, validateConfig } from "./config";
 import type { BacktestConfig } from "./config";
 import { runSimulation } from "./simulator";
+import { ConfigStore } from "./configs";
 
 const API_PREFIX = "/admin/backtest/";
 const MAX_BODY_BYTES = 1_000_000;
@@ -55,22 +56,34 @@ async function requestJson(request: Request): Promise<Record<string, unknown>> {
 
 export class Backtest {
   private readonly database;
+  private readonly configs;
   private busy = false;
 
   constructor(state: DurableObjectState, private readonly env: Env) {
     this.database = openCache(state.storage);
+    this.configs = new ConfigStore(this.database.sql);
   }
 
   async fetch(request: Request): Promise<Response> {
+    try {
+      return await this.handle(request);
+    } catch (error) {
+      return jsonResponse({
+        error: error instanceof Error ? error.message : "The backtest could not be completed."
+      }, error instanceof TypeError || error instanceof RangeError ? 400 : 502);
+    }
+  }
+
+  private async handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const action = url.pathname.slice(API_PREFIX.length);
     if (request.method === "GET" && action === "config") {
-      return jsonResponse({ config: validateConfig(defaults), today: newYorkDate() });
+      return jsonResponse({ config: this.configs.load(), strategies: strategyCatalog, today: newYorkDate() });
     }
     if (request.method === "GET" && action === "cache") {
       return jsonResponse({ tickers: getCacheSummary(this.database) });
     }
-    if (action !== "run" && action !== "refresh") {
+    if (action !== "run" && action !== "refresh" && action !== "save") {
       return jsonResponse({ error: "Not found." }, 404);
     }
     if (request.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
@@ -82,7 +95,13 @@ export class Backtest {
     this.busy = true;
     try {
       const body = await requestJson(request);
-      const config = validateConfig(body.config === undefined ? defaults : body.config);
+      if (action === "save") {
+        return jsonResponse({ config: this.configs.save(body.config) });
+      }
+      const source = body.config === undefined
+        ? this.configs.load()
+        : body.config;
+      const config = validateConfig(source);
       const tickers = [...new Set(["SPY", "VOO", ...config.strategy.watchlist])];
       const downloaded = await updateCachedBars(
         this.database,
@@ -105,10 +124,6 @@ export class Backtest {
         downloaded,
         cache: getCacheSummary(this.database)
       });
-    } catch (error) {
-      return jsonResponse({
-        error: error instanceof Error ? error.message : "The backtest could not be completed."
-      }, error instanceof TypeError || error instanceof RangeError ? 400 : 502);
     } finally {
       this.busy = false;
     }

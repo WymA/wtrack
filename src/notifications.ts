@@ -6,8 +6,13 @@ const ALERT_HISTORY_TTL_SECONDS = 90 * 24 * 60 * 60;
 function formatAlert(alert: StockAlert): string {
   return [
     `${alert.ticker} | ${alert.type}`,
+    ...(alert.strategy ? [`Strategy ${alert.strategy}`] : []),
     `Close $${alert.close.toFixed(2)}`,
     `Stop $${alert.stopLoss.toFixed(2)}`,
+    ...(alert.momentumScore !== undefined ? [
+      `Momentum ${alert.momentumScore === null ? "unavailable" : alert.momentumScore.toFixed(3)}`,
+      `Watchlist percentile ${alert.percentileRank === null || alert.percentileRank === undefined ? "unavailable" : alert.percentileRank.toFixed(1)}`
+    ] : []),
     `EMA 20/50/100/200: ${alert.ema20.toFixed(2)} / ${alert.ema50.toFixed(2)} / ${alert.ema100.toFixed(2)} / ${alert.ema200.toFixed(2)}`
   ].join(" | ");
 }
@@ -84,7 +89,8 @@ export async function sendNewAlerts(
 
   const historyKey = `alerts:${date}`;
   const sentIds = parseAlertHistory(await env.WTRACK_KV.get(historyKey));
-  const pending = alerts.filter((alert) => !sentIds.has(`${alert.ticker}:${alert.type}`));
+  const alertId = (alert: StockAlert) => `${alert.ticker}:${alert.type}${alert.strategy ? `:${alert.strategy}` : ""}`;
+  const pending = alerts.filter((alert) => !sentIds.has(alertId(alert)));
   const notified: StockAlert[] = [];
 
   for (const chunk of splitMessages(pending, date)) {
@@ -95,7 +101,7 @@ export async function sendNewAlerts(
     await postWebhook(message, webhookUrl, env);
 
     for (const alert of chunk) {
-      sentIds.add(`${alert.ticker}:${alert.type}`);
+      sentIds.add(alertId(alert));
       notified.push(alert);
     }
     await env.WTRACK_KV.put(historyKey, JSON.stringify([...sentIds]), {

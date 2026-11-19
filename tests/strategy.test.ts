@@ -37,6 +37,8 @@ describe("evaluateBuySetup", () => {
     );
 
     expect(evaluateBuySetup(bars, indicators)).toBe("Setup A");
+    expect(evaluateBuySetup(bars, indicators, [])).toBeNull();
+    expect(evaluateBuySetup(bars, indicators, ["Setup B"])).toBeNull();
   });
 
   it("detects a deep pullback reclaim with a recent 20/50 EMA cross", () => {
