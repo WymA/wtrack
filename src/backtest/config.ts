@@ -1,15 +1,9 @@
-import type { EntrySetup } from "../../strategy-core/types.ts";
-import type { MomentumStopType } from "../../strategy-core/types.ts";
+import type { EmaName, EntrySetup, MomentumStopType, StopConfig, StrategyExecutionConfig } from "../../strategy-core/types.ts";
 import { strategyCatalog } from "../../strategy-core/strategy.ts";
 
-export type StopConfig =
-  | { type: "swing-low"; lookback: number }
-  | { type: "fixed-percent"; value: number }
-  | { type: "ema-buffer"; ema: EmaName; bufferPercent: number };
+export type { StopConfig } from "../../strategy-core/types.ts";
 
-type EmaName = "ema20" | "ema50" | "ema100" | "ema200";
-
-export interface BacktestConfig {
+export interface BacktestConfig extends StrategyExecutionConfig {
   strategy: {
     setups: EntrySetup[];
     watchlist: string[];
@@ -27,16 +21,6 @@ export interface BacktestConfig {
       value: number;
     };
   };
-  stops: {
-    initial: StopConfig;
-    leftSideFailurePercent: number;
-  };
-  profitTaking: {
-    type: "fixed-percent" | "risk-multiple";
-    value: number;
-    partialPercent: number;
-  };
-  trailingExitEma: "disabled" | "ema50" | "ema100";
   costs: {
     slippagePercent: number;
     commissionPerOrder: number;

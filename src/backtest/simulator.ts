@@ -2,21 +2,18 @@ import {
   calculateIndicators
 } from "../../strategy-core/indicators.ts";
 import {
-  evaluateBuySetup,
-  evaluateExitSignals,
-  evaluateIntradaySetups,
-  evaluateMomentumExit,
+  evaluateEntries,
   evaluateRankedSetups,
+  evaluateStrategyExit,
+  getStrategy,
   isIntradaySetup,
   isRankedSetup,
   isRightSideSetup,
-  marketRegimePasses,
-  recentSwingLow,
-  momentumHardStop,
-  rankMomentumUniverse,
-  supportFailure
+  prepareStrategyUniverse
 } from "../../strategy-core/strategy.ts";
-import type { Bar, EntrySetup, IndicatorSeries, MarketInstrument } from "../../strategy-core/types.ts";
+import type {
+  Bar, EntrySetup, IndicatorSeries, MarketInstrument, StrategyEntryCandidate, StrategyPositionState
+} from "../../strategy-core/types.ts";
 import type { BacktestConfig } from "./config.ts";
 
 export interface CompletedTrade {
@@ -77,13 +74,10 @@ interface Instrument {
   indexByDate: Map<string, number>;
 }
 
-interface EntryCandidate {
-  ticker: string;
+interface EntryCandidate extends StrategyEntryCandidate {
   setup: EntrySetup;
   signalDate: string;
   signalIndex: number;
-  support?: number;
-  atr14?: number;
 }
 
 interface Position {
@@ -95,14 +89,11 @@ interface Position {
   remainingShares: number;
   stopPrice: number;
   targetPrice: number;
-  support?: number;
   realizedPnl: number;
   exitShares: number;
   exitValue: number;
   targetReached: boolean;
-  leftSideFailureClosesRemaining: number;
-  standardExitsArmed: boolean;
-  wideTrailing: boolean;
+  state: StrategyPositionState;
 }
 
 interface PendingExit {
@@ -161,6 +152,7 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
   const rightSideSetups = config.strategy.setups.filter(isRightSideSetup);
   const hasIntradaySetups = config.strategy.setups.some(isIntradaySetup);
   const hasRankedSetups = config.strategy.setups.some(isRankedSetup);
+  const needsUniverse = hasRankedSetups || config.strategy.setups.some((setup) => getStrategy(setup).exit.needsUniverse);
 
   const dates = voo.bars
     .map(dateOf)
@@ -219,32 +211,22 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
     if (!instrument || !signalBar) return;
 
     const entryPrice = fillPrice(rawPrice, "buy", config.costs.slippagePercent);
-    const initialStop = config.stops.initial;
-    let stopPrice: number;
-    if (candidate.setup === "Setup D") {
-      stopPrice = momentumHardStop(entryPrice, candidate.atr14 ?? 0, config.strategy.momentumStop);
-      if (stopPrice <= 0) return;
-    } else if (initialStop.type === "swing-low") {
-      stopPrice = recentSwingLow(
-        instrument.bars.slice(0, candidate.signalIndex + 1),
-        initialStop.lookback
-      );
-    } else if (initialStop.type === "fixed-percent") {
-      stopPrice = entryPrice * (1 - initialStop.value / 100);
-    } else {
-      const ema = instrument.indicators[initialStop.ema][candidate.signalIndex];
-      if (ema === undefined) return;
-      stopPrice = ema * (1 - initialStop.bufferPercent / 100);
-    }
-    if (candidate.support !== undefined) {
-      const failureStop = candidate.support * (1 - config.stops.leftSideFailurePercent / 100);
-      stopPrice = Math.max(stopPrice, failureStop);
-    }
+    const strategy = getStrategy(candidate.setup);
+    const rules = strategy.position.initialize({
+      entryDate: date, entryPrice, candidate, config,
+      instrument: {
+        ticker: candidate.ticker,
+        bars: instrument.bars.slice(0, candidate.signalIndex + 1),
+        indicators: indicatorPrefix(instrument.indicators, candidate.signalIndex + 1)
+      }
+    });
+    if (!rules) return;
+    const { stopPrice, targetPrice, state } = rules;
     const riskPerShare = entryPrice - stopPrice;
     if (riskPerShare <= 0) return;
 
-    const marks = candidate.setup === "Setup D" ? new Map(lastCloses) : lastCloses;
-    if (candidate.setup === "Setup D") {
+    const marks = strategy.position.markAtOpen ? new Map(lastCloses) : lastCloses;
+    if (strategy.position.markAtOpen) {
       for (const ticker of positions.keys()) {
         const held = instruments.get(ticker);
         const index = held?.indexByDate.get(date);
@@ -254,7 +236,7 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
     const equity = positionEquity(cash, positions, marks);
     const sizing = config.portfolio.sizing;
     let budget: number;
-    if (candidate.setup === "Setup D") {
+    if (strategy.position.sizing === "equal-weight") {
       budget = equity / config.portfolio.maxOpenPositions;
     } else if (sizing.type === "risk-percent") {
       budget = equity * sizing.value / 100 / riskPerShare * entryPrice;
@@ -267,11 +249,6 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
     const shares = Math.min(budget / entryPrice, affordable);
     if (!Number.isFinite(shares) || shares <= 0) return;
 
-    const riskDistance = entryPrice - stopPrice;
-    const targetPrice = candidate.setup === "Setup D" ? Number.POSITIVE_INFINITY
-      : config.profitTaking.type === "fixed-percent"
-      ? entryPrice * (1 + config.profitTaking.value / 100)
-      : entryPrice + riskDistance * config.profitTaking.value;
     const commission = config.costs.commissionPerOrder;
     cash -= shares * entryPrice + commission;
     positions.set(candidate.ticker, {
@@ -283,14 +260,11 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       remainingShares: shares,
       stopPrice,
       targetPrice,
-      ...(candidate.support !== undefined ? { support: candidate.support } : {}),
       realizedPnl: 0,
       exitShares: 0,
       exitValue: 0,
       targetReached: false,
-      leftSideFailureClosesRemaining: candidate.support !== undefined ? 2 : 0,
-      standardExitsArmed: candidate.support === undefined,
-      wideTrailing: false
+      state
     });
   };
 
@@ -304,7 +278,7 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       return;
     }
     if (bar.open <= position.stopPrice) {
-      closePosition(position, date, bar.open, position.setup === "Setup D" ? "Hard Stop" : "Initial stop");
+      closePosition(position, date, bar.open, getStrategy(position.setup).position.stopReason);
       return;
     }
     if (!position.targetReached && bar.open >= position.targetPrice) {
@@ -336,22 +310,17 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
     pendingEntries = remainingEntries;
 
     const regimeIndex = voo.indexByDate.get(date);
-    const regimeBar = regimeIndex === undefined ? undefined : voo.bars[regimeIndex];
-    const regime = regimeIndex !== undefined && regimeBar !== undefined
-      ? marketRegimePasses(voo.bars.slice(0, regimeIndex + 1), indicatorPrefix(voo.indicators, regimeIndex + 1))
-      : false;
+    const benchmark = regimeIndex === undefined ? undefined : {
+      ticker: "VOO", bars: voo.bars.slice(0, regimeIndex + 1),
+      indicators: indicatorPrefix(voo.indicators, regimeIndex + 1)
+    };
     const priorRegimeIndex = regimeIndex === undefined ? undefined : regimeIndex - 1;
-    const priorRegimeBar = priorRegimeIndex === undefined || priorRegimeIndex < 0
-      ? undefined
-      : voo.bars[priorRegimeIndex];
-    const priorRegime = priorRegimeIndex !== undefined && priorRegimeIndex >= 0 && priorRegimeBar !== undefined
-      ? marketRegimePasses(
-        voo.bars.slice(0, priorRegimeIndex + 1),
-        indicatorPrefix(voo.indicators, priorRegimeIndex + 1)
-      )
-      : false;
+    const priorBenchmark = priorRegimeIndex === undefined || priorRegimeIndex < 0 ? undefined : {
+      ticker: "VOO", bars: voo.bars.slice(0, priorRegimeIndex + 1),
+      indicators: indicatorPrefix(voo.indicators, priorRegimeIndex + 1)
+    };
 
-    if (priorRegime) {
+    if (priorBenchmark) {
       for (const ticker of config.strategy.watchlist) {
         const instrument = instruments.get(ticker);
         const barIndex = instrument?.indexByDate.get(date);
@@ -359,19 +328,19 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
         if (!instrument || barIndex === undefined || !bar || positions.has(ticker)) continue;
 
         if (hasIntradaySetups && barIndex > 0) {
-          const entries = evaluateIntradaySetups(
-            instrument.bars.slice(0, barIndex),
-            indicatorPrefix(instrument.indicators, barIndex),
-            bar,
-            config.strategy.setups
-          );
+          const entries = evaluateEntries({
+            timing: "intraday", benchmark: priorBenchmark, session: bar,
+            instrument: {
+              ticker, bars: instrument.bars.slice(0, barIndex),
+              indicators: indicatorPrefix(instrument.indicators, barIndex)
+            }
+          }, config.strategy.setups);
           for (const entry of entries) {
+            if (entry.price === undefined) continue;
             openPosition({
-              ticker,
-              setup: entry.setup,
+              ...entry,
               signalDate: date,
-              signalIndex: barIndex - 1,
-              support: entry.support
+              signalIndex: barIndex - 1
             }, date, entry.price);
           }
         }
@@ -382,10 +351,10 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       const position = positions.get(ticker);
       if (!position) continue;
       if (bar.low <= position.stopPrice) {
-        closePosition(position, date, position.stopPrice, position.setup === "Setup D" ? "Hard Stop" : "Initial stop");
+        closePosition(position, date, position.stopPrice, getStrategy(position.setup).position.stopReason);
         continue;
       }
-      const ambiguousEntryDayHigh = position.support !== undefined && position.entryDate === date;
+      const ambiguousEntryDayHigh = !getStrategy(position.setup).position.allowEntryDayTarget && position.entryDate === date;
       if (!position.targetReached && !ambiguousEntryDayHigh && bar.high >= position.targetPrice) {
         position.targetReached = true;
         const fraction = config.profitTaking.partialPercent / 100;
@@ -394,7 +363,7 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       }
     }
 
-    const universe: MarketInstrument[] = hasRankedSetups ? config.strategy.watchlist.flatMap((ticker) => {
+    const universe: MarketInstrument[] = needsUniverse ? config.strategy.watchlist.flatMap((ticker) => {
       const instrument = instruments.get(ticker);
       const index = instrument?.indexByDate.get(date);
       return instrument && index !== undefined ? [{
@@ -403,9 +372,7 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
         indicators: indicatorPrefix(instrument.indicators, index + 1)
       }] : [];
     }) : [];
-    const momentumRanks = hasRankedSetups ? rankMomentumUniverse(universe) : [];
-    const momentumWinners = new Set(momentumRanks
-      .filter((rank) => rank.rank <= Math.ceil(momentumRanks.length * 0.3)).map((rank) => rank.ticker));
+    const universeStates = prepareStrategyUniverse(universe, config.strategy.setups);
     const nextEntries: EntryCandidate[] = [];
     for (const ticker of config.strategy.watchlist) {
       const instrument = instruments.get(ticker);
@@ -414,53 +381,30 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       if (!instrument || barIndex === undefined || !bar) continue;
       const position = positions.get(ticker);
 
-      if (position?.setup === "Setup D") {
-        const exit = evaluateMomentumExit(
-          position, instrument.bars.slice(0, barIndex + 1),
-          indicatorPrefix(instrument.indicators, barIndex + 1), momentumWinners.has(ticker)
-        );
-        position.wideTrailing = exit.wideTrailing;
-        if (exit.signal) {
-          const reason = exit.signal === "Exit Tier 2" ? "EMA trailing exit (ema50)"
-            : exit.signal === "Exit Tier 3" ? "EMA trailing exit (ema100)" : exit.signal;
-          pendingExits.set(ticker, { reason });
-        }
-      } else if (position) {
-        const wasStandardExitArmed = position.standardExitsArmed;
-        if (position.support !== undefined &&
-          position.leftSideFailureClosesRemaining > 0 &&
-          supportFailure(bar.close, position.support, config.stops.leftSideFailurePercent)) {
-          pendingExits.set(ticker, { reason: "Left-side failure" });
-        } else {
-          if (position.leftSideFailureClosesRemaining > 0) {
-            position.leftSideFailureClosesRemaining -= 1;
+      if (position) {
+        const exit = evaluateStrategyExit(position.setup, {
+          position, config, universeState: universeStates.get(position.setup)!,
+          instrument: {
+            ticker, bars: instrument.bars.slice(0, barIndex + 1),
+            indicators: indicatorPrefix(instrument.indicators, barIndex + 1)
           }
-          const ema50 = instrument.indicators.ema50[barIndex];
-          if (position.support !== undefined && ema50 !== undefined && bar.close > ema50) {
-            position.standardExitsArmed = true;
-          }
+        });
+        position.state = exit.state;
+        if (exit.reason) {
+          if (exit.immediate) closePosition(position, date, bar.close, exit.reason);
+          else pendingExits.set(ticker, { reason: exit.reason });
         }
-        if ((wasStandardExitArmed || position.standardExitsArmed) &&
-          config.trailingExitEma !== "disabled" && barIndex > 0) {
-          const exits = evaluateExitSignals(
-            instrument.bars.slice(0, barIndex + 1),
-            indicatorPrefix(instrument.indicators, barIndex + 1)
-          );
-          const requiredSignal = config.trailingExitEma === "ema50" ? "Exit Tier 2" : "Exit Tier 3";
-          if (exits.includes(requiredSignal)) {
-            pendingExits.set(ticker, { reason: `EMA trailing exit (${config.trailingExitEma})` });
+      } else if (benchmark && rightSideSetups.length > 0) {
+        const entry = evaluateEntries({
+          timing: "close", benchmark,
+          instrument: {
+            ticker, bars: instrument.bars.slice(0, barIndex + 1),
+            indicators: indicatorPrefix(instrument.indicators, barIndex + 1)
           }
-        }
-      } else if (regime && rightSideSetups.length > 0) {
-        const setup = evaluateBuySetup(
-          instrument.bars.slice(0, barIndex + 1),
-          indicatorPrefix(instrument.indicators, barIndex + 1),
-          rightSideSetups
-        );
-        if (setup) {
+        }, rightSideSetups)[0];
+        if (entry) {
           nextEntries.push({
-            ticker,
-            setup,
+            ...entry,
             signalDate: date,
             signalIndex: barIndex
           });
@@ -469,18 +413,17 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
       lastCloses.set(ticker, bar.close);
     }
 
-    const rankedEntries = hasRankedSetups && regimeIndex !== undefined
-      ? evaluateRankedSetups(universe, {
-        ticker: "VOO",
-        bars: voo.bars.slice(0, regimeIndex + 1),
-        indicators: indicatorPrefix(voo.indicators, regimeIndex + 1)
-      }, config.strategy.setups).map((candidate) => ({
-        ticker: candidate.ticker, setup: candidate.setup, signalDate: date,
+    const rankedEntries = hasRankedSetups && benchmark
+      ? evaluateRankedSetups(universe, benchmark, config.strategy.setups).map((candidate) => ({
+        ...candidate, signalDate: date,
         signalIndex: instruments.get(candidate.ticker)!.indexByDate.get(date)!,
-        atr14: candidate.atr14
       }))
       : [];
-    pendingEntries = [...remainingEntries.filter((candidate) => isRankedSetup(candidate.setup)), ...rankedEntries, ...nextEntries];
+    pendingEntries = [
+      ...remainingEntries.filter((candidate) => getStrategy(candidate.setup).position.retainPendingEntry),
+      ...rankedEntries,
+      ...nextEntries
+    ];
     const equity = positionEquity(cash, positions, lastCloses);
     equityCurve.push({ date, equity });
   }

@@ -2,54 +2,80 @@ import { strategyA } from "./setups/a.ts";
 import { strategyB } from "./setups/b.ts";
 import { strategyC } from "./setups/c.ts";
 import { strategyD } from "./setups/d.ts";
-import type { Bar, EntrySetup, IndicatorSeries, MarketInstrument, RightSideSetup, StrategyDefinition } from "./types.ts";
+import type {
+  Bar, EntrySetup, IndicatorSeries, MarketInstrument, RightSideSetup, StrategyDefinition,
+  StrategyEntryCandidate, StrategyEntryContext, StrategyExitContext, StrategyExitEvaluation, StrategyUniverseState
+} from "./types.ts";
 
 export { evaluateExitSignals } from "./exits.ts";
+export { marketRegimePasses } from "./market.ts";
+export { recentSwingLow } from "./shared.ts";
 export { evaluateSupportTouch, supportFailure } from "./setups/c.ts";
 export { evaluateMomentumExit, momentumHardStop, momentumRegimePasses, rankMomentumUniverse } from "./setups/d.ts";
 
 export const REQUIRED_DAILY_BARS = 300;
 export const strategies = [strategyA, strategyB, strategyC, strategyD] as const satisfies readonly StrategyDefinition[];
-export const strategyCatalog = strategies.map(({ id, code, name, timing, description }) => ({
-  id, code, name, timing, description
+export const strategyCatalog = strategies.map(({ id, code, name, timing, entry, exit, position }) => ({
+  id, code, name, timing,
+  description: entry.description,
+  exitDescription: exit.description,
+  positionDescription: position.description
 }));
 const RIGHT_SIDE_SETUPS = strategies.flatMap((strategy) => strategy.timing === "close" ? [strategy.id] : []);
 
-export function marketRegimePasses(vooBars: readonly Bar[], voo: IndicatorSeries): boolean {
-  const index = vooBars.length - 1;
-  const latest = vooBars[index];
-  const ema50 = voo.ema50[index];
-  const ema200 = voo.ema200[index];
-  return latest !== undefined && ema50 !== undefined && ema200 !== undefined &&
-    latest.close > ema50 && latest.close > ema200;
+export function getStrategy(setup: string): StrategyDefinition {
+  const strategy = strategies.find((strategy) => strategy.id === setup);
+  if (!strategy) throw new RangeError(`Unknown strategy: ${setup}.`);
+  return strategy;
+}
+
+export function evaluateEntries(
+  context: StrategyEntryContext,
+  active: readonly EntrySetup[]
+): Array<StrategyEntryCandidate & { setup: EntrySetup }> {
+  return strategies.flatMap((strategy) =>
+    strategy.timing === context.timing && active.includes(strategy.id) &&
+    (!context.benchmark || strategy.entry.regimePasses(context.benchmark))
+      ? strategy.entry.evaluate(context).map((candidate) => ({ ...candidate, setup: strategy.id }))
+      : []
+  );
+}
+
+export function prepareStrategyUniverse(
+  universe: readonly MarketInstrument[],
+  active: readonly EntrySetup[]
+): Map<EntrySetup, StrategyUniverseState> {
+  return new Map([...new Set(active)].map((setup) => [setup, getStrategy(setup).exit.prepare(universe)]));
+}
+
+export function evaluateStrategyExit(setup: EntrySetup, context: StrategyExitContext): StrategyExitEvaluation {
+  return getStrategy(setup).exit.evaluate(context);
 }
 
 export function evaluateBuySetup(
   bars: readonly Bar[],
   indicators: IndicatorSeries,
-  active: readonly RightSideSetup[] = RIGHT_SIDE_SETUPS
+  active: readonly RightSideSetup[] = RIGHT_SIDE_SETUPS,
+  benchmark?: MarketInstrument
 ): RightSideSetup | null {
-  for (const strategy of strategies) {
-    if (strategy.timing === "close" && active.includes(strategy.id) && strategy.evaluate(bars, indicators)) {
-      return strategy.id;
-    }
-  }
-  return null;
+  const candidate = evaluateEntries({
+    timing: "close", instrument: { ticker: "", bars, indicators }, benchmark
+  }, active)[0];
+  return candidate && isRightSideSetup(candidate.setup) ? candidate.setup : null;
 }
 
 export function evaluateIntradaySetups(
   priorBars: readonly Bar[],
   indicators: IndicatorSeries,
   session: Pick<Bar, "open" | "low">,
-  active: readonly EntrySetup[]
-): Array<{ setup: EntrySetup; support: number; price: number }> {
-  const entries: Array<{ setup: EntrySetup; support: number; price: number }> = [];
-  for (const strategy of strategies) {
-    if (strategy.timing !== "intraday" || !active.includes(strategy.id)) continue;
-    const entry = strategy.evaluate(priorBars, indicators, session);
-    if (entry) entries.push({ setup: strategy.id, ...entry });
-  }
-  return entries;
+  active: readonly EntrySetup[],
+  benchmark?: MarketInstrument
+): Array<{ setup: EntrySetup; support?: number; price: number }> {
+  return evaluateEntries({
+    timing: "intraday", instrument: { ticker: "", bars: priorBars, indicators }, session, benchmark
+  }, active).flatMap((candidate) => candidate.price === undefined ? [] : [{
+    setup: candidate.setup, support: candidate.support, price: candidate.price
+  }]);
 }
 
 export function isRightSideSetup(setup: EntrySetup): setup is RightSideSetup {
@@ -69,14 +95,5 @@ export function evaluateRankedSetups(
   voo: MarketInstrument,
   active: readonly EntrySetup[]
 ) {
-  return strategies.flatMap((strategy) =>
-    strategy.timing === "ranked-close" && active.includes(strategy.id)
-      ? strategy.evaluate(universe, voo).map((candidate) => ({ ...candidate, setup: strategy.id }))
-      : []
-  );
-}
-
-export function recentSwingLow(bars: readonly Bar[], lookback = 5): number {
-  if (!bars.length) throw new Error("Cannot calculate a swing low without price bars.");
-  return Math.min(...bars.slice(-lookback).map(({ low }) => low));
+  return evaluateEntries({ timing: "ranked-close", universe, benchmark: voo }, active);
 }

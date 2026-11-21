@@ -1,5 +1,10 @@
 import type { Bar, IndicatorSeries } from "./types.ts";
 
+export function recentSwingLow(bars: readonly Bar[], lookback = 5): number {
+  if (!bars.length) throw new Error("Cannot calculate a swing low without price bars.");
+  return Math.min(...bars.slice(-lookback).map(({ low }) => low));
+}
+
 export function hasUpwardSlope(values: readonly number[], index: number): boolean {
   const current = values[index];
   const fiveDaysAgo = values[index - 5];

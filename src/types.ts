@@ -1,4 +1,5 @@
 import type { SignalType } from "./strategy-types";
+import type { EntrySetup } from "../strategy-core/types";
 export type { Bar, IndicatorSeries, SignalType } from "./strategy-types";
 
 export interface StockAlert {
@@ -11,7 +12,7 @@ export interface StockAlert {
   ema50: number;
   ema100: number;
   ema200: number;
-  strategy?: "Setup D";
+  strategy?: EntrySetup;
   momentumScore?: number | null;
   percentileRank?: number | null;
 }

@@ -194,6 +194,26 @@ describe("Strategy V2 simulation chronology", () => {
 });
 
 describe("alert-only momentum position tracking", () => {
+  it("migrates the previous D ledger format without resetting its latched exit state", () => {
+    const legacy = {
+      date: "2025-01-16",
+      positions: [{
+        ticker: "S1", signalDate: "2025-01-14", atr14: 2, exitPending: false,
+        entry: { entryDate: "2025-01-15", entryPrice: 100, stopPrice: 92, wideTrailing: true }
+      }],
+      alerts: []
+    };
+    const state = parseMomentumState(JSON.stringify(legacy));
+    expect(state.positions[0]).toMatchObject({
+      setup: "Setup D", candidate: { ticker: "S1", atr14: 2 },
+      entry: { state: { wideTrailing: true } }
+    });
+    expect(parseMomentumState(JSON.stringify(state))).toEqual(state);
+    const source = { VOO: bars(), S1: bars() };
+    const next = advanceMomentumSignals(state, "2025-01-17", ["S1"], source);
+    expect(next.positions[0]!.entry!.state.wideTrailing).toBe(true);
+  });
+
   it("remembers next-open fills, checks stops despite the regime, and does not advance twice for one session", () => {
     const source = { VOO: bars(), S1: bars() };
     const signalDate = source.VOO[320]!.timestamp.slice(0, 10);

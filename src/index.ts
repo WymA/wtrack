@@ -2,7 +2,7 @@ import { fetchDailyHistory, REQUIRED_DAILY_BARS } from "./data";
 import { calculateIndicators } from "./indicators";
 import { sendNewAlerts } from "./notifications";
 import { advanceMomentumSignals, MOMENTUM_STATE_KEY, parseMomentumState } from "./momentum-signals";
-import { momentumRegimePasses } from "../strategy-core/strategy";
+import { isRankedSetup, momentumRegimePasses } from "../strategy-core/strategy";
 import { currentSessionIsComplete } from "./backtest/config";
 import { evaluateBuySetup, evaluateExitSignals, marketRegimePasses, recentSwingLow } from "./strategy";
 import type { Bar, Env, IndicatorSeries, SignalType, StockAlert } from "./types";
@@ -376,8 +376,10 @@ async function runScan(env: Env, phase?: "close" | "morning"): Promise<ScanResul
     for (const signal of evaluateExitSignals(bars, indicators)) {
       alerts.push(createAlert(ticker, signal, bars, indicators, date));
     }
-    if (marketRegime.passes && watchlist.includes(ticker)) {
-      const signal = evaluateBuySetup(bars, indicators);
+    if (watchlist.includes(ticker)) {
+      const signal = evaluateBuySetup(bars, indicators, undefined, {
+        ticker: "VOO", bars: vooBars, indicators: vooIndicators
+      });
       if (signal) alerts.push(createAlert(ticker, signal, bars, indicators, date));
     }
   }
@@ -401,7 +403,7 @@ async function runScan(env: Env, phase?: "close" | "morning"): Promise<ScanResul
     await paperTradingRequest(env, "/execute", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ date, phase, alerts: alerts.filter((alert) => alert.strategy !== "Setup D") })
+      body: JSON.stringify({ date, phase, alerts: alerts.filter((alert) => !alert.strategy || !isRankedSetup(alert.strategy)) })
     });
   }
   const notified = await sendNewAlerts(alerts, date, env);

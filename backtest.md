@@ -76,15 +76,16 @@ Close-confirmed right-side signals execute at the next trading session's open. S
 | Path | Purpose |
 | --- | --- |
 | `strategy-core/strategy.ts` | Shared registry and evaluation facade for all strategies. |
-| `strategy-core/setups/` | Separate A/B/C/D entry rules and strategy-card descriptions; D also owns shared momentum ranking and position-exit logic. |
+| `strategy-core/setups/` | A/B/C/D modules with the same entry, exit, position and universe-preparation hooks, plus strategy-card descriptions. |
 | `strategy-core/exits.ts` | Shared EMA exit rules. |
+| `strategy-core/positions.ts` | Shared configured V1 position initialization and execution policy. |
 | `src/backtest/` | Worker-compatible Backtest Durable Object, config validation, SQLite cache, and simulator. |
 | `src/data.ts` | Shared server-side Alpaca market-data client, including historical downloads. |
 | `public/admin/index.html` | WTrack Admin page. |
 | `public/admin/admin.js` | Admin actions and paper-trading controls. |
 | `public/admin/backtest.html` | Integrated Backtest UI, using the shared WTrack top menu and theme. |
 | `src/backtest/configs.ts` | One validated online configuration persisted in Durable Object SQLite. |
-| `src/momentum-signals.ts` | Alert-only D position tracking and completed-session replay in Worker KV. |
+| `src/momentum-signals.ts` | Registry-driven alert-only ranked-strategy position tracking and completed-session replay in Worker KV, with legacy D-state migration. |
 | `backtest.config.json` | User-editable deployment seed; saved overrides take precedence. |
 | `.wrangler/` | Ignored local Worker and Durable Object state. |
 

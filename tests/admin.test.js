@@ -135,6 +135,10 @@ it("edits one online config, saves only explicitly, and discards unsaved changes
   await vi.waitFor(() => expect(elements.get("#config").value).toContain("AAPL"));
   expect(elements.get("#strategy-cards").innerHTML).toContain("Stacked Pullback");
   expect(elements.get("#strategy-cards").innerHTML).toContain("Momentum Rotation");
+  expect(elements.get("#strategy-cards").innerHTML).toContain("<strong>Entry:</strong>");
+  expect(elements.get("#strategy-cards").innerHTML).toContain("<strong>Exit:</strong>");
+  expect(elements.get("#strategy-cards").innerHTML).toContain("<strong>Position:</strong>");
+  expect(elements.get("#strategy-cards").innerHTML).toContain(strategyCatalog[2].exitDescription.replaceAll("'", "&#39;"));
   for (const removed of ["config-select", "config-name", "config-files"]) expect(markup).not.toContain(`id="${removed}"`);
   expect(strategyInputs.get("Setup A").checked).toBe(true);
   const b = strategyInputs.get("Setup B");

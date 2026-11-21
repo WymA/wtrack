@@ -52,9 +52,7 @@ Include for every alert:
 
 ### 6. Adding strategies
 
-Each entry lives in its own `strategy-core/setups/` module with an ID, compact code, name, explanation, timing, and pure evaluator. A/B use `CloseStrategyDefinition`; C uses `SupportStrategyDefinition` for prior-session support entries; D uses `RankedStrategyDefinition` with watchlist and VOO context. Import and register new definitions in the ordered `strategies` array in `strategy-core/strategy.ts`; registration order defines close-signal priority.
-
-The registry supplies entry types, allowed backtest setup IDs, strategy-card descriptions and selection controls, and simulator dispatch. Existing Worker and simulator callers continue to import the `strategy.ts` facade. Shared EMA exits live in `strategy-core/exits.ts`; market-regime and portfolio/risk controls stay separate from entry evaluators.
+All strategy modules use the same `entry`, `exit`, and `position` sections, with pure evaluation, per-position state, and registry-derived UI descriptions. Shared EMA exits remain common to V1. See [the contributor guide](./AGENTS.md#adding-a-strategy) for the module template, hooks, and registration instructions.
 
 ---
 

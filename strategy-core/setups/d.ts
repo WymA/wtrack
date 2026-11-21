@@ -1,9 +1,11 @@
 import { calculateAtr } from "../indicators.ts";
 import { evaluateExitSignals } from "../exits.ts";
 import { hasUpwardSlope } from "../shared.ts";
+import { initialPositionState } from "../positions.ts";
 import type {
   Bar, IndicatorSeries, MarketInstrument, MomentumPosition, MomentumStopType,
-  RankedCandidate, RankedStrategyDefinition, SignalType
+  RankedCandidate, RankedStrategyDefinition, StrategyEntryContext,
+  StrategyExitContext, StrategyExitEvaluation, StrategyPositionContext, StrategyPositionRules, StrategyUniverseState
 } from "../types.ts";
 
 export interface MomentumRank extends RankedCandidate {
@@ -55,7 +57,7 @@ export function evaluateMomentumExit(
   bars: readonly Bar[],
   indicators: IndicatorSeries,
   inTop30Percent: boolean
-): { signal: SignalType | null; wideTrailing: boolean } {
+): { signal: StrategyExitEvaluation["signal"]; wideTrailing: boolean } {
   const bar = bars.at(-1);
   if (!bar) return { signal: null, wideTrailing: position.wideTrailing };
   if (bar.low <= position.stopPrice) return { signal: "Hard Stop", wideTrailing: position.wideTrailing };
@@ -71,16 +73,68 @@ export function evaluateMomentumExit(
   return { signal: null, wideTrailing };
 }
 
+export function evaluateEntry(context: StrategyEntryContext): RankedCandidate[] {
+  if (context.timing !== "ranked-close" || !momentumRegimePasses(context.benchmark)) return [];
+  const ranked = rankMomentumUniverse(context.universe);
+  const cutoff = Math.max(1, Math.ceil(ranked.length * 0.15));
+  return ranked.filter((candidate) => candidate.rank <= cutoff && candidate.eligible);
+}
+
+export function evaluateExit(context: StrategyExitContext): StrategyExitEvaluation {
+  const { position, instrument, universeState } = context;
+  const exit = evaluateMomentumExit(
+    { ...position, wideTrailing: position.state.wideTrailing },
+    instrument.bars,
+    instrument.indicators,
+    universeState.retainedTickers.has(instrument.ticker)
+  );
+  return {
+    signal: exit.signal,
+    reason: exit.signal === "Exit Tier 2" ? "EMA trailing exit (ema50)"
+      : exit.signal === "Exit Tier 3" ? "EMA trailing exit (ema100)" : exit.signal,
+    immediate: exit.signal === "Hard Stop",
+    state: { ...position.state, wideTrailing: exit.wideTrailing }
+  };
+}
+
+export function initializePosition(context: StrategyPositionContext): StrategyPositionRules | null {
+  const stopPrice = momentumHardStop(context.entryPrice, context.candidate.atr14 ?? 0, context.config.strategy.momentumStop);
+  return stopPrice > 0 ? {
+    stopPrice,
+    targetPrice: Number.POSITIVE_INFINITY,
+    state: initialPositionState()
+  } : null;
+}
+
+export function prepareUniverse(universe: readonly MarketInstrument[]): StrategyUniverseState {
+  const ranks = rankMomentumUniverse(universe);
+  const cutoff = Math.ceil(ranks.length * 0.3);
+  return { ranks, retainedTickers: new Set(ranks.filter((rank) => rank.rank <= cutoff).map((rank) => rank.ticker)) };
+}
+
 export const strategyD = {
   id: "Setup D",
   code: "D",
   name: "Volatility-Adjusted Momentum Rotation (V2)",
   timing: "ranked-close",
-  description: "VOO above its 200 EMA; rising 200 EMA and close > 20 > 50 > 200 EMA, at most 8% above the 20 EMA, positive 63/126-day returns and top-15% volatility-adjusted watchlist momentum. Next-open entries fill equal-weight slots. Uses an 8% or 2.5x ATR(14) stop, 50/100 EMA winner trailing and Friday momentum-decay rotation.",
-  evaluate(universe: readonly MarketInstrument[], voo: MarketInstrument): RankedCandidate[] {
-    if (!momentumRegimePasses(voo)) return [];
-    const ranked = rankMomentumUniverse(universe);
-    const cutoff = Math.max(1, Math.ceil(ranked.length * 0.15));
-    return ranked.filter((candidate) => candidate.rank <= cutoff && candidate.eligible);
+  entry: {
+    description: "VOO above its 200 EMA; rising 200 EMA and close > 20 > 50 > 200 EMA, at most 8% above the 20 EMA, positive 63/126-day returns and top-15% volatility-adjusted watchlist momentum. Next-open entries fill equal-weight slots. Uses an 8% or 2.5x ATR(14) stop, 50/100 EMA winner trailing and Friday momentum-decay rotation.",
+    regimePasses: momentumRegimePasses,
+    evaluate: evaluateEntry
+  },
+  exit: {
+    description: "Hard stop, two-close EMA50 trailing, latched EMA100 trailing after a 25% intraday gain, and Friday rotation after 15 sessions outside the top 30% and below EMA20.",
+    needsUniverse: true,
+    prepare: prepareUniverse,
+    evaluate: evaluateExit
+  },
+  position: {
+    description: "Equal-weight slots; 8% or 2.5x signal-day ATR14 stop; no V1 profit target. Alert-only in the scanner.",
+    sizing: "equal-weight",
+    markAtOpen: true,
+    retainPendingEntry: true,
+    allowEntryDayTarget: true,
+    stopReason: "Hard Stop",
+    initialize: initializePosition
   }
 } as const satisfies RankedStrategyDefinition;

@@ -1,4 +1,24 @@
-import type { Bar, ExitSignal, IndicatorSeries } from "./types.ts";
+import type {
+  Bar, ExitSignal, IndicatorSeries, StrategyExitContext, StrategyExitEvaluation, StrategyUniverseState
+} from "./types.ts";
+
+export function emptyUniverseState(): StrategyUniverseState {
+  return { ranks: [], retainedTickers: new Set() };
+}
+
+export function evaluateConfiguredExit(context: StrategyExitContext): StrategyExitEvaluation {
+  const { position, instrument, config } = context;
+  const signal = config.trailingExitEma === "disabled" || !position.state.standardExitsArmed
+    ? null
+    : evaluateExitSignals(instrument.bars, instrument.indicators)
+      .find((signal) => signal === (config.trailingExitEma === "ema50" ? "Exit Tier 2" : "Exit Tier 3")) ?? null;
+  return {
+    signal,
+    reason: signal ? `EMA trailing exit (${config.trailingExitEma})` : null,
+    immediate: false,
+    state: position.state
+  };
+}
 
 export function evaluateExitSignals(bars: readonly Bar[], indicators: IndicatorSeries): ExitSignal[] {
   const index = bars.length - 1;

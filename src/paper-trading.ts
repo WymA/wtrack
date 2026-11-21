@@ -1,4 +1,5 @@
 import type { Env, StockAlert } from "./types";
+import { isRankedSetup } from "../strategy-core/strategy";
 
 const API = "https://paper-api.alpaca.markets/v2";
 const BUDGET = 1000;
@@ -264,7 +265,7 @@ export class PaperTrading {
     }
     const signals = new Map<string, StockAlert[]>();
     for (const alert of input.alerts) {
-      if (alert.strategy === "Setup D") continue;
+      if (alert.strategy && isRankedSetup(alert.strategy)) continue;
       const group = signals.get(alert.ticker) ?? [];
       group.push(alert);
       signals.set(alert.ticker, group);
