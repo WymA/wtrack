@@ -53,7 +53,7 @@ export interface RankedCandidate {
 
 export interface RankedStrategyDefinition extends StrategyMetadata {
   timing: "ranked-close";
-  evaluate(universe: readonly MarketInstrument[], spy: MarketInstrument): RankedCandidate[];
+  evaluate(universe: readonly MarketInstrument[], voo: MarketInstrument): RankedCandidate[];
 }
 
 export interface MomentumPosition {

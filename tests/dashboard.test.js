@@ -103,13 +103,52 @@ it("shares the top menu and theme across Home, Admin, and Backtest", () => {
 });
 
 describe("dashboard watchlist rendering", () => {
+  it("renders VOO prices and entry-filter indicators without using a conflicting SPY snapshot", () => {
+    const { renderSnapshot, elements } = createDashboard();
+    renderSnapshot({
+      watchlist: [],
+      snapshot: {
+        scannedAt: "2026-11-16T21:30:00Z", sessionDate: "2026-11-16", status: "completed",
+        marketRegime: {
+          passes: true, v2Passes: true,
+          voo: { close: 110, ema50: 100, ema200: 90 },
+          spy: { close: 50, ema50: 80, ema200: 90 }
+        },
+        marketProxies: {
+          voo: { close: 110, change: 2, changePercent: 1.85, asOfDate: "2026-11-16" },
+          spy: { close: 50 }
+        },
+        tickers: []
+      }
+    });
+    expect(elements.get("#voo-price").textContent).toBe("$110.00");
+    expect(elements.get("#voo-change").textContent).toContain("+$2.00");
+    expect(elements.get("#voo-summary").textContent).toBe("VOO $110.00 · EMA 50 $100.00 · EMA 200 $90.00");
+    expect(elements.get("#market-filter").textContent).toBe("V1: Passing · V2: Passing");
+  });
+
+  it("does not relabel a saved SPY regime as VOO before the next scan", () => {
+    const { renderSnapshot, elements } = createDashboard();
+    renderSnapshot({
+      watchlist: [],
+      snapshot: {
+        scannedAt: "2026-11-16T21:30:00Z", sessionDate: "2026-11-16", status: "completed",
+        marketRegime: { passes: true, spy: { close: 110, ema50: 100, ema200: 90 } },
+        marketProxies: { spy: { close: 110 } }, tickers: []
+      }
+    });
+    expect(elements.get("#market-filter").textContent).toBe("Awaiting VOO scan");
+    expect(elements.get("#voo-summary").textContent).toBe("No VOO benchmark data yet");
+    expect(elements.get("#voo-price").textContent).toBe("—");
+  });
+
   it("renders D, hard-stop and momentum-rotation signals with their correct colors and separate V2 regime", () => {
     const { renderSnapshot, elements } = createDashboard();
     renderSnapshot({
       watchlist: ["AAA", "BBB", "CCC"],
       snapshot: {
         scannedAt: "2025-01-17T22:00:00Z", sessionDate: "2025-01-17", status: "completed",
-        marketRegime: { passes: false, v2Passes: true, spy: {} },
+        marketRegime: { passes: false, v2Passes: true, voo: {} },
         tickers: [
           { ticker: "AAA", signals: ["Setup D"] }, { ticker: "BBB", signals: ["Hard Stop"] },
           { ticker: "CCC", signals: ["Momentum Rotation"] }
@@ -161,7 +200,7 @@ describe("dashboard watchlist rendering", () => {
         scannedAt: "2026-11-16T21:30:00Z",
         sessionDate: "2026-11-16",
         status: "completed",
-        marketRegime: { passes: false, spy: {} },
+        marketRegime: { passes: false, voo: {} },
         tickers: [
           { ticker: "AAPL", asOfDate: "2026-11-16", close: 100, change: 1.25, changePercent: 1.25, ema20: 99, ema50: 98, ema100: 97, ema200: 96, signals: ["Setup A"] },
           { ticker: "MSFT", close: 90, signals: ["Exit Tier 2", "Exit Tier 3"] },
@@ -195,7 +234,7 @@ describe("dashboard watchlist rendering", () => {
         scannedAt: "2026-11-17T21:30:00Z",
         sessionDate: "2026-11-17",
         status: "no-current-session",
-        marketRegime: { passes: false, spy: {} },
+        marketRegime: { passes: false, voo: {} },
         tickers: [{ ticker: "AAPL", asOfDate: "2026-11-16", signals: [] }]
       }
     });
@@ -215,7 +254,7 @@ describe("dashboard watchlist rendering", () => {
         scannedAt: "2026-11-16T21:30:00Z",
         sessionDate: "2026-11-16",
         status: "completed",
-        marketRegime: { passes: false, spy: {} },
+        marketRegime: { passes: false, voo: {} },
         tickers: [{ ticker: "AAPL", signals: ["Setup A"] }]
       }
     });

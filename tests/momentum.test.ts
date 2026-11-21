@@ -58,20 +58,20 @@ describe("Strategy V2 indicators and ranking", () => {
     const expected = ((close / best.bars[213]!.close - 1) + (close / best.bars[276]!.close - 1)) / (2 * 2 / close);
     expect(ranked[0]!.score).toBeCloseTo(expected);
     expect(ranked[0]).toMatchObject({ ticker: "S7", rank: 1, percentileRank: 100 });
-    expect(evaluateRankedSetups(universe, instrument("SPY"), ["Setup D"]).map((item) => item.ticker)).toEqual(["S7", "S6"]);
+    expect(evaluateRankedSetups(universe, instrument("VOO"), ["Setup D"]).map((item) => item.ticker)).toEqual(["S7", "S6"]);
     best.indicators.ema20[339] = close / 1.09;
-    expect(evaluateRankedSetups(universe, instrument("SPY"), ["Setup D"]).map((item) => item.ticker)).toEqual(["S6"]);
+    expect(evaluateRankedSetups(universe, instrument("VOO"), ["Setup D"]).map((item) => item.ticker)).toEqual(["S6"]);
   });
 
   it("uses the V2 200-EMA gate independently of V1 and resolves tied scores deterministically", () => {
-    const spy = instrument("SPY");
-    spy.indicators.ema50[339] = spy.bars[339]!.close + 1;
-    expect(marketRegimePasses(spy.bars, spy.indicators)).toBe(false);
-    expect(momentumRegimePasses(spy)).toBe(true);
+    const voo = instrument("VOO");
+    voo.indicators.ema50[339] = voo.bars[339]!.close + 1;
+    expect(marketRegimePasses(voo.bars, voo.indicators)).toBe(false);
+    expect(momentumRegimePasses(voo)).toBe(true);
     const universe = [instrument("ZZZ"), instrument("AAA")];
-    expect(evaluateRankedSetups(universe, spy, ["Setup D"]).map((item) => item.ticker)).toEqual(["AAA"]);
-    spy.indicators.ema200[339] = spy.bars[339]!.close + 1;
-    expect(evaluateRankedSetups(universe, spy, ["Setup D"])).toEqual([]);
+    expect(evaluateRankedSetups(universe, voo, ["Setup D"]).map((item) => item.ticker)).toEqual(["AAA"]);
+    voo.indicators.ema200[339] = voo.bars[339]!.close + 1;
+    expect(evaluateRankedSetups(universe, voo, ["Setup D"])).toEqual([]);
     expect(rankMomentumUniverse([instrument("SHORT", bars(299))])).toEqual([]);
     const flat = bars().map((bar) => ({ ...bar, open: 100, close: 100, high: 100, low: 100 }));
     expect(rankMomentumUniverse([instrument("FLAT", flat)])).toEqual([]);
@@ -112,17 +112,27 @@ describe("Strategy V2 exits", () => {
 });
 
 describe("Strategy V2 simulation chronology", () => {
+  it.each([true, false])("uses VOO instead of conflicting SPY data for simulated and alert-only D entries (VOO passing: %s)", (passes) => {
+    const rising = bars();
+    const blocked = rising.map((bar) => ({ ...bar, open: 80, high: 81, low: 79, close: 80 }));
+    const source = { VOO: passes ? rising : blocked, SPY: passes ? blocked : rising, S1: bars() };
+    const result = runSimulation(settings(source.VOO), source);
+    expect(result.openTrades.map((trade) => trade.setup)).toEqual(passes ? ["Setup D"] : []);
+    const state = advanceMomentumSignals(parseMomentumState(null), source.VOO[300]!.timestamp.slice(0, 10), ["S1"], source);
+    expect(state.alerts.map((alert) => alert.type)).toEqual(passes ? ["Setup D"] : []);
+  });
+
   it("fills score-ranked equal-weight slots at the next open and ignores V1 sizing/targets without look-ahead", () => {
-    const source: Record<string, Bar[]> = { SPY: bars() };
+    const source: Record<string, Bar[]> = { VOO: bars() };
     for (let index = 1; index <= 7; index += 1) source[`S${index}`] = bars(340, index / 10);
-    const config = settings(source.SPY!);
+    const config = settings(source.VOO!);
     config.strategy.watchlist = Array.from({ length: 7 }, (_, index) => `S${index + 1}`);
     config.portfolio.maxOpenPositions = 2;
     const result = runSimulation(config, source);
     expect(result.trades).toEqual([]);
     expect(result.openTrades.map((trade) => trade.ticker)).toEqual(["S7", "S6"]);
     for (const trade of result.openTrades) {
-      expect(trade.entryDate).toBe(source.SPY![301]!.timestamp.slice(0, 10));
+      expect(trade.entryDate).toBe(source.VOO![301]!.timestamp.slice(0, 10));
       expect(trade.remainingShares * trade.entryPrice).toBeCloseTo(50_000);
     }
     const futureChanged = Object.fromEntries(Object.entries(source).map(([ticker, values]) => [
@@ -131,29 +141,29 @@ describe("Strategy V2 simulation chronology", () => {
     expect(runSimulation(config, futureChanged)).toEqual(result);
   });
 
-  it("allows D entries when SPY is above EMA200 but below EMA50 and waits for a missing ticker's next open", () => {
-    const source = { SPY: bars(), S1: bars() };
-    for (let index = 300; index < source.SPY.length; index += 1) {
-      Object.assign(source.SPY[index]!, { open: 150, high: 151, low: 149, close: 150 });
+  it("allows D entries when VOO is above EMA200 but below EMA50 and waits for a missing ticker's next open", () => {
+    const source = { VOO: bars(), S1: bars() };
+    for (let index = 300; index < source.VOO.length; index += 1) {
+      Object.assign(source.VOO[index]!, { open: 150, high: 151, low: 149, close: 150 });
     }
-    const spy = instrument("SPY", source.SPY.slice(0, 301));
-    expect(marketRegimePasses(spy.bars, spy.indicators)).toBe(false);
-    expect(momentumRegimePasses(spy)).toBe(true);
+    const voo = instrument("VOO", source.VOO.slice(0, 301));
+    expect(marketRegimePasses(voo.bars, voo.indicators)).toBe(false);
+    expect(momentumRegimePasses(voo)).toBe(true);
     const expectedDate = source.S1[302]!.timestamp.slice(0, 10);
     source.S1.splice(301, 1);
-    const result = runSimulation(settings(source.SPY), source);
+    const result = runSimulation(settings(source.VOO), source);
     expect(result.openTrades[0]).toMatchObject({ setup: "Setup D", entryDate: expectedDate });
   });
 
   it.each([["fixed-percent", 82.8], ["atr", 85]] as const)(
-    "applies the %s hard stop to the actual fill, using signal-day ATR even when SPY turns down",
+    "applies the %s hard stop to the actual fill, using signal-day ATR even when VOO turns down",
     (mode, stop) => {
-      const source = { SPY: bars(), S1: bars() };
-      const config = settings(source.SPY);
+      const source = { VOO: bars(), S1: bars() };
+      const config = settings(source.VOO);
       config.strategy.momentumStop = mode;
       Object.assign(source.S1[301]!, { open: 90, high: 91, low: 80, close: 85 });
-      for (let index = 301; index < source.SPY.length; index += 1) {
-        Object.assign(source.SPY[index]!, { open: 80, high: 81, low: 79, close: 80 });
+      for (let index = 301; index < source.VOO.length; index += 1) {
+        Object.assign(source.VOO[index]!, { open: 80, high: 81, low: 79, close: 80 });
       }
       const result = runSimulation(config, source);
       expect(result.trades[0]).toMatchObject({
@@ -165,19 +175,19 @@ describe("Strategy V2 simulation chronology", () => {
   );
 
   it("executes a Friday momentum rotation on the next trading open, not Friday's close", () => {
-    const source: Record<string, Bar[]> = { SPY: bars() };
+    const source: Record<string, Bar[]> = { VOO: bars() };
     for (let index = 1; index <= 7; index += 1) source[`S${index}`] = bars(340, index / 10);
-    const config = settings(source.SPY!, 321);
+    const config = settings(source.VOO!, 321);
     config.strategy.watchlist = Array.from({ length: 7 }, (_, index) => `S${index + 1}`);
     Object.assign(source.S7![319]!, { open: 310, high: 311, low: 309, close: 310 });
     for (let index = 1; index <= 6; index += 1) {
       Object.assign(source[`S${index}`]![319]!, { open: 1000, high: 1001, low: 999, close: 1000 });
     }
     const trade = runSimulation(config, source).trades[0];
-    expect(new Date(source.SPY![319]!.timestamp).getUTCDay()).toBe(5);
+    expect(new Date(source.VOO![319]!.timestamp).getUTCDay()).toBe(5);
     expect(trade).toMatchObject({
       ticker: "S7", exitReason: "Momentum Rotation",
-      exitDate: source.SPY![320]!.timestamp.slice(0, 10),
+      exitDate: source.VOO![320]!.timestamp.slice(0, 10),
       exitPrice: source.S7![320]!.open
     });
   });
@@ -185,8 +195,8 @@ describe("Strategy V2 simulation chronology", () => {
 
 describe("alert-only momentum position tracking", () => {
   it("remembers next-open fills, checks stops despite the regime, and does not advance twice for one session", () => {
-    const source = { SPY: bars(), S1: bars() };
-    const signalDate = source.SPY[320]!.timestamp.slice(0, 10);
+    const source = { VOO: bars(), S1: bars() };
+    const signalDate = source.VOO[320]!.timestamp.slice(0, 10);
     const initial = advanceMomentumSignals(parseMomentumState(null), signalDate, ["S1"], source);
     expect(initial.alerts).toMatchObject([{
       ticker: "S1", type: "Setup D", strategy: "Setup D", momentumScore: expect.any(Number), percentileRank: 100
@@ -194,17 +204,17 @@ describe("alert-only momentum position tracking", () => {
     expect(initial.positions[0]!.entry).toBeNull();
     expect(advanceMomentumSignals(initial, signalDate, ["S1"], source)).toBe(initial);
     Object.assign(source.S1[321]!, { open: 90, high: 91, low: 80, close: 85 });
-    Object.assign(source.SPY[321]!, { open: 80, high: 81, low: 79, close: 80 });
+    Object.assign(source.VOO[321]!, { open: 80, high: 81, low: 79, close: 80 });
     const next = advanceMomentumSignals(parseMomentumState(JSON.stringify(initial)),
-      source.SPY[321]!.timestamp.slice(0, 10), ["S1"], source);
+      source.VOO[321]!.timestamp.slice(0, 10), ["S1"], source);
     expect(next.alerts).toMatchObject([{ type: "Hard Stop", strategy: "Setup D", stopLoss: 82.8 }]);
     expect(next.positions).toEqual([]);
     expect(() => parseMomentumState('{"positions":false}')).toThrow("invalid");
   });
 
   it("replays missed sessions like daily runs and continues exits after watchlist removal", () => {
-    const source = { SPY: bars(), S1: bars() };
-    const date = (index: number) => source.SPY[index]!.timestamp.slice(0, 10);
+    const source = { VOO: bars(), S1: bars() };
+    const date = (index: number) => source.VOO[index]!.timestamp.slice(0, 10);
     const initial = advanceMomentumSignals(parseMomentumState(null), date(310), ["S1"], source);
     let daily = initial;
     for (let index = 311; index <= 316; index += 1) {

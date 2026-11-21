@@ -10,10 +10,10 @@ export interface MomentumRank extends RankedCandidate {
   eligible: boolean;
 }
 
-export function momentumRegimePasses(spy: MarketInstrument): boolean {
-  const index = spy.bars.length - 1;
-  const close = spy.bars[index]?.close;
-  const ema200 = spy.indicators.ema200[index];
+export function momentumRegimePasses(voo: MarketInstrument): boolean {
+  const index = voo.bars.length - 1;
+  const close = voo.bars[index]?.close;
+  const ema200 = voo.indicators.ema200[index];
   return close !== undefined && ema200 !== undefined && close > ema200;
 }
 
@@ -76,9 +76,9 @@ export const strategyD = {
   code: "D",
   name: "Volatility-Adjusted Momentum Rotation (V2)",
   timing: "ranked-close",
-  description: "SPY above its 200 EMA; rising 200 EMA and close > 20 > 50 > 200 EMA, at most 8% above the 20 EMA, positive 63/126-day returns and top-15% volatility-adjusted watchlist momentum. Next-open entries fill equal-weight slots. Uses an 8% or 2.5x ATR(14) stop, 50/100 EMA winner trailing and Friday momentum-decay rotation.",
-  evaluate(universe: readonly MarketInstrument[], spy: MarketInstrument): RankedCandidate[] {
-    if (!momentumRegimePasses(spy)) return [];
+  description: "VOO above its 200 EMA; rising 200 EMA and close > 20 > 50 > 200 EMA, at most 8% above the 20 EMA, positive 63/126-day returns and top-15% volatility-adjusted watchlist momentum. Next-open entries fill equal-weight slots. Uses an 8% or 2.5x ATR(14) stop, 50/100 EMA winner trailing and Friday momentum-decay rotation.",
+  evaluate(universe: readonly MarketInstrument[], voo: MarketInstrument): RankedCandidate[] {
+    if (!momentumRegimePasses(voo)) return [];
     const ranked = rankMomentumUniverse(universe);
     const cutoff = Math.max(1, Math.ceil(ranked.length * 0.15));
     return ranked.filter((candidate) => candidate.rank <= cutoff && candidate.eligible);

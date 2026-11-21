@@ -67,17 +67,17 @@ export function advanceMomentumSignals(
     }))
   };
   const sessions = previous.date
-    ? (data.SPY ?? []).map((bar) => bar.timestamp.slice(0, 10)).filter((day) => day > previous.date && day <= date)
+    ? (data.VOO ?? []).map((bar) => bar.timestamp.slice(0, 10)).filter((day) => day > previous.date && day <= date)
     : [date];
   for (const session of sessions) {
     const instruments = new Map<string, MarketInstrument>();
-    for (const ticker of new Set(["SPY", ...watchlist, ...state.positions.map((position) => position.ticker)])) {
+    for (const ticker of new Set(["VOO", ...watchlist, ...state.positions.map((position) => position.ticker)])) {
       const bars = (data[ticker] ?? []).filter((bar) => bar.timestamp.slice(0, 10) <= session).slice(-REQUIRED_DAILY_BARS);
       if (bars.at(-1)?.timestamp.slice(0, 10) !== session) continue;
       instruments.set(ticker, { ticker, bars, indicators: calculateIndicators(bars) });
     }
-    const spy = instruments.get("SPY");
-    if (!spy) continue;
+    const voo = instruments.get("VOO");
+    if (!voo) continue;
     const universe = watchlist.flatMap((ticker) => instruments.get(ticker) ? [instruments.get(ticker)!] : []);
     const ranks = rankMomentumUniverse(universe);
     const rankByTicker = new Map(ranks.map((rank) => [rank.ticker, rank]));
@@ -109,7 +109,7 @@ export function advanceMomentumSignals(
       remaining.push(position);
     }
     state.positions = remaining;
-    for (const candidate of evaluateRankedSetups(universe, spy, ["Setup D"])) {
+    for (const candidate of evaluateRankedSetups(universe, voo, ["Setup D"])) {
       if (state.positions.some((position) => position.ticker === candidate.ticker)) continue;
       const instrument = instruments.get(candidate.ticker)!;
       alerts.push(alertFor(instrument, candidate.setup, momentumHardStop(instrument.bars.at(-1)!.close, candidate.atr14), rankByTicker.get(candidate.ticker)));

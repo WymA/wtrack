@@ -106,7 +106,7 @@ describe("admin actions", () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
-      bars: { SPY: bars, QQQ: bars, AAPL: declining },
+      bars: { VOO: bars, QQQ: bars, AAPL: declining },
       next_page_token: null
     })));
     const log = vi.spyOn(console, "info").mockImplementation(() => {});
@@ -123,6 +123,46 @@ describe("admin actions", () => {
       vi.unstubAllGlobals();
       vi.useRealTimers();
       log.mockRestore();
+    }
+  });
+
+  it.each([true, false])("uses VOO for both scanner entry gates when SPY disagrees (VOO passing: %s)", async (passes) => {
+    const values = new Map<string, string>();
+    const { env } = createEnv(values, ["AAPL"]);
+    env.ALPACA_API_KEY = "test-key";
+    env.ALPACA_API_SECRET_KEY = "test-secret";
+    const now = new Date("2026-11-16T21:30:00Z");
+    const rising = Array.from({ length: 300 }, (_, index) => {
+      const close = 100 + index * 0.2;
+      return {
+        t: new Date(now.getTime() - (299 - index) * 86_400_000).toISOString(),
+        o: close - 0.1, h: close + 1, l: close - 1, c: close, v: 1000
+      };
+    });
+    const blocked = rising.map((bar) => ({ ...bar, o: 80, h: 81, l: 79, c: 80 }));
+    const fetcher = vi.fn().mockResolvedValue(Response.json({
+      bars: {
+        VOO: passes ? rising : blocked, SPY: passes ? blocked : rising,
+        QQQ: rising, AAPL: rising
+      },
+      next_page_token: null
+    }));
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    vi.stubGlobal("fetch", fetcher);
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const response = await worker.fetch(new Request("https://wtrack.example/admin/scan"), env);
+      expect(response.status).toBe(200);
+      const result = await response.json() as { marketRegime: unknown; alerts: StockAlert[] };
+      expect(result.marketRegime).toMatchObject({ passes, v2Passes: passes, voo: { close: passes ? 159.8 : 80 } });
+      expect(result.alerts.some((alert) => alert.type === "Setup D")).toBe(passes);
+      const url = new URL(String(fetcher.mock.calls[0]![0]));
+      expect(url.searchParams.get("symbols")).toBe("VOO,QQQ,AAPL");
+    } finally {
+      info.mockRestore();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
     }
   });
 
@@ -148,7 +188,7 @@ describe("admin actions", () => {
       };
     });
     const fetcher = vi.fn().mockResolvedValue(Response.json({
-      bars: { SPY: bars, QQQ: bars, AAPL: bars }, next_page_token: null
+      bars: { VOO: bars, QQQ: bars, AAPL: bars }, next_page_token: null
     }));
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-11-16T15:00:00Z"));
@@ -160,7 +200,7 @@ describe("admin actions", () => {
       expect(values.has("momentum-signal-state")).toBe(false);
       vi.setSystemTime(new Date("2026-11-16T21:30:00Z"));
       fetcher.mockResolvedValue(Response.json({
-        bars: { SPY: bars, QQQ: bars, AAPL: bars }, next_page_token: null
+        bars: { VOO: bars, QQQ: bars, AAPL: bars }, next_page_token: null
       }));
       const scheduledWork: Promise<unknown>[] = [];
       worker.scheduled({
@@ -185,10 +225,10 @@ describe("admin actions", () => {
   });
 
   it.each([
-    { watchlist: ["AAPL"], expectedSymbols: ["SPY", "QQQ", "AAPL"], previous: 100, change: -10, percent: -10 },
-    { watchlist: ["AAPL"], expectedSymbols: ["SPY", "QQQ", "AAPL"], previous: 0, change: 90, percent: null },
-    { watchlist: ["AAPL"], expectedSymbols: ["SPY", "QQQ", "AAPL"], previous: null, change: null, percent: null },
-    { watchlist: ["QQQ"], expectedSymbols: ["SPY", "QQQ"], previous: 100, change: -10, percent: -10 }
+    { watchlist: ["AAPL"], expectedSymbols: ["VOO", "QQQ", "AAPL"], previous: 100, change: -10, percent: -10 },
+    { watchlist: ["AAPL"], expectedSymbols: ["VOO", "QQQ", "AAPL"], previous: 0, change: 90, percent: null },
+    { watchlist: ["AAPL"], expectedSymbols: ["VOO", "QQQ", "AAPL"], previous: null, change: null, percent: null },
+    { watchlist: ["QQQ"], expectedSymbols: ["VOO", "QQQ"], previous: 100, change: -10, percent: -10 }
   ])("stores daily changes for $watchlist with previous close $previous", async ({
     watchlist, expectedSymbols, previous, change, percent
   }) => {
@@ -207,7 +247,7 @@ describe("admin actions", () => {
       return Response.json({
         bars: Object.fromEntries(symbols.map((symbol) => [
           symbol,
-          symbol === "SPY" ? bars : watchlist.includes(symbol)
+          symbol === "VOO" ? bars : watchlist.includes(symbol)
             ? [
               ...(previous === null ? [] : [{ ...bars[298], c: previous }]),
               { ...bars[299], c: 90 }
@@ -229,7 +269,7 @@ describe("admin actions", () => {
       expect(result.marketRegime).toEqual({
         passes: false,
         v2Passes: false,
-        spy: { close: 100, ema50: expect.any(Number), ema200: expect.any(Number) }
+        voo: { close: 100, ema50: expect.any(Number), ema200: expect.any(Number) }
       });
       expect(fetcher).toHaveBeenCalledOnce();
       const url = new URL(String(fetcher.mock.calls[0]?.[0]));
@@ -237,13 +277,13 @@ describe("admin actions", () => {
       const snapshot = JSON.parse(values.get("latest-scan") ?? "") as {
         tickers: { ticker: string; change: number | null; changePercent: number | null }[];
         marketProxies: {
-          spy: { close: number | null; change: number | null; changePercent: number | null };
+          voo: { close: number | null; change: number | null; changePercent: number | null };
           qqq: { close: number | null; change: number | null; changePercent: number | null; asOfDate: string | null };
         };
       };
       expect(snapshot.tickers.map((ticker) => ticker.ticker)).toEqual(watchlist);
       expect(snapshot.tickers[0]).toMatchObject({ change, changePercent: percent });
-      expect(snapshot.marketProxies.spy).toMatchObject({ close: 100, change: 0, changePercent: 0 });
+      expect(snapshot.marketProxies.voo).toMatchObject({ close: 100, change: 0, changePercent: 0 });
       expect(snapshot.marketProxies.qqq).toMatchObject(watchlist.includes("QQQ")
         ? { close: 90, change, changePercent: percent, asOfDate: "2026-11-16" }
         : { close: null, change: null, changePercent: null, asOfDate: null });
@@ -425,7 +465,7 @@ describe("admin actions", () => {
         return Response.json([{ date: "2026-11-13" }, { date: "2026-11-16" }]);
       }
       if (url.pathname === "/v2/stocks/bars") {
-        return Response.json({ bars: { SPY: bars, QQQ: bars, AAPL: bars }, next_page_token: null });
+        return Response.json({ bars: { VOO: bars, QQQ: bars, AAPL: bars }, next_page_token: null });
       }
       throw new Error(`Unexpected request ${url}`);
     });

@@ -27,6 +27,8 @@ Choose **Backtest** in the top menu, or open `/admin/backtest.html`. It runs ins
 
 Select A/B/C or the new V2 momentum strategy D using the explanation cards, or edit the configuration online. **Run backtest** previews the draft; only **Save config** persists it, and **Reload saved config** discards unsaved edits. [`backtest.config.json`](./backtest.config.json) supplies deployment defaults; saved settings and cached history live separately for local and deployed WTrack. See [`backtest.md`](./backtest.md) for details.
 
+For terminal results, run `pnpm backtest:run`; it starts and stops its own local Worker, reads `backtest.config.json`, and writes a report and full JSON results under `backtest-data/logs`. Use `--config <file>` for another config or `--url https://your-worker.example` for an existing Worker; `pnpm backtest:run --help` lists options. Runs do not save settings.
+
 ## Deploy
 
 Set production credentials as Wrangler secrets; do not put secret values in source or `wrangler.toml`:

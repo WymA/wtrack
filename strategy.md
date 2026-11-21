@@ -14,8 +14,8 @@ Display badges use A/B/C/D for entries and A1/A2/A3 for protective-stop/50-EMA/1
 - **Rising EMA:** `EMA[today] > EMA[5 trading days ago]`.
 
 ### 2. Market Entry Filter
-- Scan for **new buy setups** only when `SPY` closes above both its `50 EMA` and `200 EMA`.
-- **Exit alerts** always run regardless of `SPY`.
+- Scan for **new buy setups** only when `VOO` closes above both its `50 EMA` and `200 EMA`.
+- **Exit alerts** always run regardless of `VOO`.
 
 ### 3. Buy Setups
 
@@ -52,7 +52,7 @@ Include for every alert:
 
 ### 6. Adding strategies
 
-Each entry lives in its own `strategy-core/setups/` module with an ID, compact code, name, explanation, timing, and pure evaluator. A/B use `CloseStrategyDefinition`; C uses `SupportStrategyDefinition` for prior-session support entries; D uses `RankedStrategyDefinition` with watchlist and SPY context. Import and register new definitions in the ordered `strategies` array in `strategy-core/strategy.ts`; registration order defines close-signal priority.
+Each entry lives in its own `strategy-core/setups/` module with an ID, compact code, name, explanation, timing, and pure evaluator. A/B use `CloseStrategyDefinition`; C uses `SupportStrategyDefinition` for prior-session support entries; D uses `RankedStrategyDefinition` with watchlist and VOO context. Import and register new definitions in the ordered `strategies` array in `strategy-core/strategy.ts`; registration order defines close-signal priority.
 
 The registry supplies entry types, allowed backtest setup IDs, strategy-card descriptions and selection controls, and simulator dispatch. Existing Worker and simulator callers continue to import the `strategy.ts` facade. Shared EMA exits live in `strategy-core/exits.ts`; market-regime and portfolio/risk controls stay separate from entry evaluators.
 
@@ -68,8 +68,8 @@ The registry supplies entry types, allowed backtest setup IDs, strategy-card des
 - **Momentum Score:** `(Return[126d] + Return[63d]) / (2 × ATR%[20d])`, where `Return[Nd] = (Close[today] - Close[N trading days ago]) / Close[N trading days ago]`.
 
 ### 2. Market Entry Filter
-- Scan for **new buy setups** only when `SPY` closes above its `200 EMA`.
-- When `SPY` closes below its `200 EMA`, pause all new entries while continuing to evaluate exit alerts on existing positions.
+- Scan for **new buy setups** only when `VOO` closes above its `200 EMA`.
+- When `VOO` closes below its `200 EMA`, pause all new entries while continuing to evaluate exit alerts on existing positions.
 
 ### 3. Buy Setup
 
@@ -100,4 +100,4 @@ ATR uses Wilder smoothing with a simple true-range seed. Ranking includes all wa
 
 Backtests enter at the following trading open using equal-weight slots. `strategy.momentumStop` chooses `fixed-percent` (8%, default) or `atr` (2.5x signal-day ATR14); V1 sizing, profit targets and configurable EMA exits do not override D. A session high reaching +25% permanently latches wide trailing. Hard stops take priority when daily OHLC cannot determine intraday ordering. Holding time counts completed trading sessions since entry; Friday rotations execute at the next available trading open.
 
-Scanner D signals track virtual next-open positions in KV, default to the 8% stop, and advance only on completed sessions. Exits continue for tracked symbols even after watchlist removal or a failed SPY gate. This ledger never submits orders and D alerts are excluded from optional A/B paper trading. Backtest configuration changes do not alter scanner settings.
+Scanner D signals track virtual next-open positions in KV, default to the 8% stop, and advance only on completed sessions. Exits continue for tracked symbols even after watchlist removal or a failed VOO gate. This ledger never submits orders and D alerts are excluded from optional A/B paper trading. Backtest configuration changes do not alter scanner settings.

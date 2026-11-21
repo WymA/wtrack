@@ -102,7 +102,7 @@ export class Backtest {
         ? this.configs.load()
         : body.config;
       const config = validateConfig(source);
-      const tickers = [...new Set(["SPY", "VOO", ...config.strategy.watchlist])];
+      const tickers = [...new Set(["VOO", ...config.strategy.watchlist])];
       const downloaded = await updateCachedBars(
         this.database,
         tickers,
@@ -135,7 +135,7 @@ export class Backtest {
     for (const ticker of tickers) {
       const bars = getCachedBars(this.database, ticker, warmupStart, config.dateWindow.end);
       const warmupCount = bars.filter((bar) => bar.timestamp.slice(0, 10) < config.dateWindow.start).length;
-      const requiresWarmup = ticker === "SPY" || config.strategy.watchlist.includes(ticker);
+      const requiresWarmup = ticker === "VOO" || config.strategy.watchlist.includes(ticker);
       if (requiresWarmup && warmupCount < 300) {
         throw new Error(
           `${ticker} has only ${warmupCount} daily bars before ${config.dateWindow.start}; ` +

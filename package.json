@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "backtest": "wrangler dev",
+    "backtest:run": "node --disable-warning=DEP0040 --experimental-strip-types scripts/backtest.ts",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

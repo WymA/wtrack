@@ -89,7 +89,7 @@ describe("evaluateExitSignals", () => {
 });
 
 describe("marketRegimePasses", () => {
-  it("requires SPY to close above both the 50 and 200 EMAs", () => {
+  it("requires VOO to close above both the 50 and 200 EMAs", () => {
     const bars = makeBars(1);
     const indicators = makeIndicators([90], [95], [80], [85]);
     expect(marketRegimePasses(bars, indicators)).toBe(true);

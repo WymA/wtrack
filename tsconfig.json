@@ -13,6 +13,7 @@
   },
   "include": [
     "src/**/*.ts",
+    "scripts/**/*.ts",
     "strategy-core/**/*.ts",
     "tests/**/*.ts",
     "worker-configuration.d.ts"

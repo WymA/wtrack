@@ -1,11 +1,23 @@
 {
   "strategy": {
-    "setups": ["Setup A", "Setup B", "Setup C", "Setup D"],
+    "setups": [
+      "Setup C",
+      "Setup D"
+    ],
     "momentumStop": "fixed-percent",
-    "watchlist": ["AAPL", "GOOG", "NVDA"]
+    "watchlist": [
+      "VOO",
+      "QQQ",
+      "AAPL",
+      "GOOG",
+      "NVDA",
+      "AMZN",
+      "META",
+      "TSLA"
+    ]
   },
   "dateWindow": {
-    "start": "2022-01-03",
+    "start": "2021-10-31",
     "end": "today"
   },
   "portfolio": {

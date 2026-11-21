@@ -144,30 +144,37 @@ describe("runSimulation", () => {
     const voo = bars.map((bar, index) => ({
       ...bar, open: 100, close: [500, 105, 110, 900][index]!
     }));
-    const result = runSimulation(config("2024-01-06", "2024-01-14"), { SPY: bars, VOO: voo, XYZ: bars });
+    const result = runSimulation(config("2024-01-06", "2024-01-14"), { VOO: voo, XYZ: bars });
     expect(result.period).toEqual({ start: "2024-01-08", end: "2024-01-12", tradingDays: 2 });
     expect(result.benchmark.ticker).toBe("VOO");
     expect(result.benchmark.returnPercent).toBeCloseTo(10);
   });
 
-  it("does not compare a shorter VOO period when a boundary session is missing", () => {
+  it("reports an unavailable VOO benchmark when a boundary price is invalid", () => {
     const bars = makeBars(307);
     const settings = config(bars[302]!.timestamp.slice(0, 10), bars[306]!.timestamp.slice(0, 10));
-    for (const voo of [bars.slice(0, 306), bars.slice(303), []]) {
-      const result = runSimulation(settings, { SPY: bars, VOO: voo, XYZ: bars });
+    for (const [index, field] of [[302, "open"], [306, "close"]] as const) {
+      const voo = bars.map((bar, offset) => offset === index ? { ...bar, [field]: 0 } : bar);
+      const result = runSimulation(settings, { VOO: voo, XYZ: bars });
       expect(result.benchmark.returnPercent).toBeNull();
     }
   });
 
+  it("requires VOO history even when SPY bars are available", () => {
+    const bars = makeBars(307);
+    expect(() => runSimulation(config("2024-01-01", "2024-01-03"), { SPY: bars, XYZ: bars }))
+      .toThrow("Cached VOO bars are required");
+  });
+
   it("reports no trading period or benchmark when the date window contains no sessions", () => {
     const bars = makeBars(307);
-    const result = runSimulation(config("2023-01-01", "2023-01-02"), { SPY: bars, VOO: bars, XYZ: bars });
+    const result = runSimulation(config("2023-01-01", "2023-01-02"), { VOO: bars, XYZ: bars });
     expect(result.period).toEqual({ start: null, end: null, tradingDays: 0 });
     expect(result.benchmark.returnPercent).toBeNull();
   });
 
   it("does not credit a target touched on the Setup C entry bar", () => {
-    const spyBars = makeBars(307);
+    const vooBars = makeBars(307);
     const stockBars = makeBars(307);
     const touchIndex = 304;
     const priorStockBars = stockBars.slice(0, touchIndex);
@@ -176,15 +183,15 @@ describe("runSimulation", () => {
     const stockBar = stockBars[touchIndex];
     if (!stockBar) throw new Error("Missing test bar.");
     stockBar.low = ema100! * 1.004;
-    const spyBar = spyBars[touchIndex];
-    if (!spyBar) throw new Error("Missing SPY test bar.");
-    spyBar.close = 90;
+    const vooBar = vooBars[touchIndex];
+    if (!vooBar) throw new Error("Missing VOO test bar.");
+    vooBar.close = 90;
 
     const backtestConfig = config(
       stockBars[302]?.timestamp.slice(0, 10) ?? "",
       stockBar.timestamp.slice(0, 10)
     );
-    const result = runSimulation(backtestConfig, { SPY: spyBars, XYZ: stockBars });
+    const result = runSimulation(backtestConfig, { VOO: vooBars, XYZ: stockBars });
 
     expect(stockBar.high).toBeGreaterThan(ema100! * 1.005 * 1.001);
     expect(result.trades).toHaveLength(0);
@@ -195,8 +202,22 @@ describe("runSimulation", () => {
     }]);
   });
 
+  it.each([true, false])("uses VOO's prior-session gate for Setup C when SPY disagrees (VOO passing: %s)", (passes) => {
+    const rising = makeBars(307);
+    const blocked = rising.map((bar) => ({ ...bar, open: 80, high: 81, low: 79, close: 80 }));
+    const stock = makeBars(307);
+    const support = calculateIndicators(stock.slice(0, 304)).ema100.at(-1)!;
+    stock[304]!.low = support * 1.004;
+    const result = runSimulation(config(stock[302]!.timestamp.slice(0, 10), stock[304]!.timestamp.slice(0, 10)), {
+      VOO: passes ? rising : blocked,
+      SPY: passes ? blocked : rising,
+      XYZ: stock
+    });
+    expect(result.openTrades.map((trade) => trade.setup)).toEqual(passes ? ["Setup C"] : []);
+  });
+
   it("arms standard EMA exits for Setup C only after a 50 EMA reclaim", () => {
-    const spyBars = makeBars(313);
+    const vooBars = makeBars(313);
     const stockBars = makeBars(313);
     const touchIndex = 304;
     const priorIndicators = calculateIndicators(stockBars.slice(0, touchIndex));
@@ -243,7 +264,7 @@ describe("runSimulation", () => {
     );
     backtestConfig.profitTaking.value = 50;
     backtestConfig.trailingExitEma = "ema50";
-    const result = runSimulation(backtestConfig, { SPY: spyBars, XYZ: stockBars });
+    const result = runSimulation(backtestConfig, { VOO: vooBars, XYZ: stockBars });
 
     expect(result.trades).toHaveLength(1);
     expect(result.trades[0]).toMatchObject({
@@ -333,33 +354,34 @@ describe("Worker backtest service", () => {
     const response = await service.fetch(backtestRequest("run", { config: settings }));
     expect(response.status).toBe(200);
     const result = await response.json() as { result: ReturnType<typeof runSimulation>; cache: unknown[] };
-    expect(result.result).toEqual(runSimulation(settings, { SPY: bars, VOO: bars, XYZ: bars }));
-    expect(result.cache).toHaveLength(3);
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(result.result).toEqual(runSimulation(settings, { VOO: bars, XYZ: bars }));
+    expect(result.cache).toHaveLength(2);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(await (await service.fetch(backtestRequest("config"))).json()).toMatchObject({
       config: { strategy: { setups: ["Setup A", "Setup B", "Setup C"] } }
     });
     expect(fetcher.mock.calls.map(([input]) => new URL(input.toString()).searchParams.get("symbols")))
-      .toEqual(["SPY", "VOO", "XYZ"]);
+      .toEqual(["VOO", "XYZ"]);
     for (const [input] of fetcher.mock.calls) {
       expect(new URL(input.toString()).searchParams.get("adjustment")).toBe("split");
     }
     settings.dateWindow.end = bars[305]!.timestamp.slice(0, 10);
     expect((await service.fetch(backtestRequest("run", { config: settings }))).status).toBe(200);
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
-  it("does not require indicator warm-up for a benchmark that is not traded", async () => {
+  it("requires VOO indicator warm-up for the entry filter even when it is not traded", async () => {
     const service = createBacktest();
     const bars = makeBars(307);
     const voo = bars.slice(302);
-    mockBars({ SPY: bars, XYZ: bars, VOO: voo });
+    mockBars({ XYZ: bars, VOO: voo });
     const response = await service.fetch(backtestRequest("run", {
       config: config(bars[302]!.timestamp.slice(0, 10), bars[306]!.timestamp.slice(0, 10))
     }));
-    expect(response.status).toBe(200);
-    const value = await response.json() as { result: ReturnType<typeof runSimulation> };
-    expect(value.result.benchmark.returnPercent).toBeCloseTo((voo.at(-1)!.close / voo[0]!.open - 1) * 100);
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining("VOO has only 0 daily bars")
+    });
   });
 
   it("excludes the current incomplete session from the integrated simulation", async () => {
@@ -392,7 +414,7 @@ describe("Worker backtest service", () => {
     expect(failure.status).toBe(502);
     expect(await failure.json()).toEqual({ error: "Alpaca unavailable." });
     const cache = await (await service.fetch(backtestRequest("cache"))).json() as { tickers: unknown[] };
-    expect(cache.tickers).toHaveLength(3);
+    expect(cache.tickers).toHaveLength(2);
   });
 
   it("rejects cross-origin requests, invalid config, malformed JSON, and oversized input before fetching data", async () => {

@@ -156,13 +156,13 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
   for (const [ticker, bars] of Object.entries(source)) {
     instruments.set(ticker, buildInstrument(bars));
   }
-  const spy = instruments.get("SPY");
-  if (!spy) throw new Error("Cached SPY bars are required to run a backtest.");
+  const voo = instruments.get("VOO");
+  if (!voo) throw new Error("Cached VOO bars are required to run a backtest.");
   const rightSideSetups = config.strategy.setups.filter(isRightSideSetup);
   const hasIntradaySetups = config.strategy.setups.some(isIntradaySetup);
   const hasRankedSetups = config.strategy.setups.some(isRankedSetup);
 
-  const dates = spy.bars
+  const dates = voo.bars
     .map(dateOf)
     .filter((date) => date >= config.dateWindow.start && date <= config.dateWindow.end);
   const positions = new Map<string, Position>();
@@ -335,19 +335,19 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
     }
     pendingEntries = remainingEntries;
 
-    const regimeIndex = spy.indexByDate.get(date);
-    const regimeBar = regimeIndex === undefined ? undefined : spy.bars[regimeIndex];
+    const regimeIndex = voo.indexByDate.get(date);
+    const regimeBar = regimeIndex === undefined ? undefined : voo.bars[regimeIndex];
     const regime = regimeIndex !== undefined && regimeBar !== undefined
-      ? marketRegimePasses(spy.bars.slice(0, regimeIndex + 1), indicatorPrefix(spy.indicators, regimeIndex + 1))
+      ? marketRegimePasses(voo.bars.slice(0, regimeIndex + 1), indicatorPrefix(voo.indicators, regimeIndex + 1))
       : false;
     const priorRegimeIndex = regimeIndex === undefined ? undefined : regimeIndex - 1;
     const priorRegimeBar = priorRegimeIndex === undefined || priorRegimeIndex < 0
       ? undefined
-      : spy.bars[priorRegimeIndex];
+      : voo.bars[priorRegimeIndex];
     const priorRegime = priorRegimeIndex !== undefined && priorRegimeIndex >= 0 && priorRegimeBar !== undefined
       ? marketRegimePasses(
-        spy.bars.slice(0, priorRegimeIndex + 1),
-        indicatorPrefix(spy.indicators, priorRegimeIndex + 1)
+        voo.bars.slice(0, priorRegimeIndex + 1),
+        indicatorPrefix(voo.indicators, priorRegimeIndex + 1)
       )
       : false;
 
@@ -471,9 +471,9 @@ export function runSimulation(config: BacktestConfig, source: BacktestData): Bac
 
     const rankedEntries = hasRankedSetups && regimeIndex !== undefined
       ? evaluateRankedSetups(universe, {
-        ticker: "SPY",
-        bars: spy.bars.slice(0, regimeIndex + 1),
-        indicators: indicatorPrefix(spy.indicators, regimeIndex + 1)
+        ticker: "VOO",
+        bars: voo.bars.slice(0, regimeIndex + 1),
+        indicators: indicatorPrefix(voo.indicators, regimeIndex + 1)
       }, config.strategy.setups).map((candidate) => ({
         ticker: candidate.ticker, setup: candidate.setup, signalDate: date,
         signalIndex: instruments.get(candidate.ticker)!.indexByDate.get(date)!,

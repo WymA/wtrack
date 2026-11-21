@@ -25,7 +25,7 @@ interface ScanResult {
   marketRegime: {
     passes: boolean;
     v2Passes?: boolean;
-    spy: BenchmarkSummary;
+    voo: BenchmarkSummary;
   };
   alerts: StockAlert[];
   notified: StockAlert[];
@@ -56,7 +56,7 @@ interface DashboardSnapshot {
   sessionDate: string;
   status: ScanResult["status"];
   marketRegime: ScanResult["marketRegime"];
-  marketProxies: { spy: DailyPrice; qqq: DailyPrice };
+  marketProxies: { voo: DailyPrice; qqq: DailyPrice };
   tickers: TickerSnapshot[];
 }
 
@@ -299,7 +299,7 @@ function createDashboardSnapshot(
     status,
     marketRegime,
     marketProxies: {
-      spy: getDailyPrice(data.SPY ?? []),
+      voo: getDailyPrice(data.VOO ?? []),
       qqq: getDailyPrice(data.QQQ ?? [])
     },
     tickers: tickers.map((ticker) =>
@@ -321,29 +321,29 @@ async function runScan(env: Env, phase?: "close" | "morning"): Promise<ScanResul
   const managed: string[] = managedValue.symbols;
   const today = currentNewYorkDate(new Date());
   const sessionDate = phase === "morning" ? await previousTradingSession(env, today) : today;
-  const tickersToFetch = [...new Set(["SPY", "QQQ", ...watchlist, ...managed, ...momentumState.positions.map((position) => position.ticker)])];
+  const tickersToFetch = [...new Set(["VOO", "QQQ", ...watchlist, ...managed, ...momentumState.positions.map((position) => position.ticker)])];
   const history = await fetchDailyHistory(tickersToFetch, env,
     phase === "morning" ? new Date(`${today}T00:00:00Z`) : new Date(), fetch,
     momentumState.date || undefined);
   const data = Object.fromEntries(Object.entries(history).map(([ticker, bars]) => [
     ticker, bars.slice(-REQUIRED_DAILY_BARS)
   ]));
-  const spyBars = data.SPY ?? [];
-  if (spyBars.length < REQUIRED_DAILY_BARS) {
-    throw new Error(`SPY must have at least ${REQUIRED_DAILY_BARS} daily bars.`);
+  const vooBars = data.VOO ?? [];
+  if (vooBars.length < REQUIRED_DAILY_BARS) {
+    throw new Error(`VOO must have at least ${REQUIRED_DAILY_BARS} daily bars.`);
   }
 
-  const spyIndicators = calculateIndicators(spyBars);
+  const vooIndicators = calculateIndicators(vooBars);
   const marketRegime = {
-    passes: marketRegimePasses(spyBars, spyIndicators),
-    v2Passes: momentumRegimePasses({ ticker: "SPY", bars: spyBars, indicators: spyIndicators }),
-    spy: getBenchmarkSummary(spyBars, spyIndicators)
+    passes: marketRegimePasses(vooBars, vooIndicators),
+    v2Passes: momentumRegimePasses({ ticker: "VOO", bars: vooBars, indicators: vooIndicators }),
+    voo: getBenchmarkSummary(vooBars, vooIndicators)
   };
   const date = sessionDate ?? today;
-  const latestSpyBar = spyBars[spyBars.length - 1];
+  const latestVooBar = vooBars[vooBars.length - 1];
   const skipped: ScanResult["skipped"] = [];
 
-  if (sessionDate === null || !latestSpyBar?.timestamp.startsWith(date)) {
+  if (sessionDate === null || !latestVooBar?.timestamp.startsWith(date)) {
     const snapshot = createDashboardSnapshot(
       watchlist,
       data,
@@ -359,7 +359,7 @@ async function runScan(env: Env, phase?: "close" | "morning"): Promise<ScanResul
       marketRegime,
       alerts: [],
       notified: [],
-      skipped: [{ ticker: "SPY", reason: "No daily bar is available for the current New York date." }]
+      skipped: [{ ticker: "VOO", reason: "No daily bar is available for the current New York date." }]
     };
   }
 

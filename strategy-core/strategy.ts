@@ -15,11 +15,11 @@ export const strategyCatalog = strategies.map(({ id, code, name, timing, descrip
 }));
 const RIGHT_SIDE_SETUPS = strategies.flatMap((strategy) => strategy.timing === "close" ? [strategy.id] : []);
 
-export function marketRegimePasses(spyBars: readonly Bar[], spy: IndicatorSeries): boolean {
-  const index = spyBars.length - 1;
-  const latest = spyBars[index];
-  const ema50 = spy.ema50[index];
-  const ema200 = spy.ema200[index];
+export function marketRegimePasses(vooBars: readonly Bar[], voo: IndicatorSeries): boolean {
+  const index = vooBars.length - 1;
+  const latest = vooBars[index];
+  const ema50 = voo.ema50[index];
+  const ema200 = voo.ema200[index];
   return latest !== undefined && ema50 !== undefined && ema200 !== undefined &&
     latest.close > ema50 && latest.close > ema200;
 }
@@ -66,12 +66,12 @@ export function isRankedSetup(setup: EntrySetup): boolean {
 
 export function evaluateRankedSetups(
   universe: readonly MarketInstrument[],
-  spy: MarketInstrument,
+  voo: MarketInstrument,
   active: readonly EntrySetup[]
 ) {
   return strategies.flatMap((strategy) =>
     strategy.timing === "ranked-close" && active.includes(strategy.id)
-      ? strategy.evaluate(universe, spy).map((candidate) => ({ ...candidate, setup: strategy.id }))
+      ? strategy.evaluate(universe, voo).map((candidate) => ({ ...candidate, setup: strategy.id }))
       : []
   );
 }

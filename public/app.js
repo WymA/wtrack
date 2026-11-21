@@ -152,14 +152,14 @@ function renderSnapshot(payload) {
     : triggered.length
       ? `${triggered.length} ticker${triggered.length === 1 ? "" : "s"} with signals in the latest scan.`
       : "No signals in the latest scan.";
-  renderMarketProxy("spy", snapshot?.marketProxies?.spy, snapshot?.scannedAt);
+  renderMarketProxy("voo", snapshot?.marketProxies?.voo, snapshot?.scannedAt);
   renderMarketProxy("qqq", snapshot?.marketProxies?.qqq, snapshot?.scannedAt);
 
   if (!snapshot) {
     document.querySelector("#session-date").textContent = "—";
     document.querySelector("#scan-status").textContent = "Waiting for the first scheduled scan";
     document.querySelector("#market-filter").textContent = "—";
-    document.querySelector("#spy-summary").textContent = "No benchmark data yet";
+    document.querySelector("#voo-summary").textContent = "No benchmark data yet";
     document.querySelector("#updated-at").textContent = "No saved snapshot yet";
     messageElement.textContent = payload.watchlist?.length
       ? "The watchlist is configured; waiting for its first scan."
@@ -171,17 +171,21 @@ function renderSnapshot(payload) {
   document.querySelector("#scan-status").textContent = snapshot.status === "completed"
     ? "Daily scan complete"
     : "No new market session; showing the latest available bars";
-  document.querySelector("#market-filter").textContent = snapshot.marketRegime.passes
-    ? "Passing"
-    : "Not passing";
-  if (typeof snapshot.marketRegime.v2Passes === "boolean") {
-    document.querySelector("#market-filter").textContent =
-      `V1: ${snapshot.marketRegime.passes ? "Passing" : "Not passing"} · V2: ${snapshot.marketRegime.v2Passes ? "Passing" : "Not passing"}`;
+  const regime = snapshot.marketRegime;
+  if (!regime?.voo) {
+    document.querySelector("#market-filter").textContent = "Awaiting VOO scan";
+    document.querySelector("#voo-summary").textContent = "No VOO benchmark data yet";
+  } else {
+    document.querySelector("#market-filter").textContent = regime.passes ? "Passing" : "Not passing";
+    if (typeof regime.v2Passes === "boolean") {
+      document.querySelector("#market-filter").textContent =
+        `V1: ${regime.passes ? "Passing" : "Not passing"} · V2: ${regime.v2Passes ? "Passing" : "Not passing"}`;
+    }
+    document.querySelector("#voo-summary").textContent =
+      `VOO ${displayNumber(regime.voo.close)} · ` +
+      `EMA 50 ${displayNumber(regime.voo.ema50)} · ` +
+      `EMA 200 ${displayNumber(regime.voo.ema200)}`;
   }
-  document.querySelector("#spy-summary").textContent =
-    `SPY ${displayNumber(snapshot.marketRegime.spy.close)} · ` +
-    `EMA 50 ${displayNumber(snapshot.marketRegime.spy.ema50)} · ` +
-    `EMA 200 ${displayNumber(snapshot.marketRegime.spy.ema200)}`;
   document.querySelector("#updated-at").textContent =
     `Saved ${new Date(snapshot.scannedAt).toLocaleString()}`;
   messageElement.textContent = remaining.length
